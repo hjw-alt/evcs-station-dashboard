@@ -1,0 +1,14 @@
+backend/backend.exe
+backend/.env
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+docx_render*/
+*.log
+*.pdf
+*.png
+.DS_Store
+Thumbs.db
+!frontend/package.json
+!frontend/tsconfig.json
+!frontend/package-lock.json
