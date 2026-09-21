@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, BatteryCharging, CircleDollarSign, DatabaseZap, Gauge, TimerReset } from 'lucide-vue-next'
+import { Activity, BatteryCharging, CircleDollarSign, DatabaseZap, TimerReset, TrendingDown } from 'lucide-vue-next'
 import type { Overview } from '../types'
 
 defineProps<{ overview: Overview | null }>()
@@ -11,6 +11,11 @@ function fmt(value: number | undefined, digits = 1) {
 function fmtTime(epoch: number | undefined) {
   if (!epoch) return '--'
   return new Date(epoch * 1000).toLocaleString('zh-CN', { hour12: false })
+}
+
+function share(value: number | undefined, total: number | undefined) {
+  if (!value || !total) return 0
+  return Math.round(value * 100 / total)
 }
 </script>
 
@@ -28,17 +33,17 @@ function fmtTime(epoch: number | undefined) {
       <strong>{{ fmt(overview?.averagePrice, 2) }}<em>元</em></strong>
       <small>{{ overview?.priced ?? 0 }} 条有价格</small>
     </article>
-    <article class="kpi-unit tou">
-      <Gauge :size="16" />
-      <span>分时覆盖率</span>
-      <strong>{{ fmt(overview?.touCoverage) }}<em>%</em></strong>
-      <small>{{ overview?.withTou ?? 0 }} 条多时段</small>
+    <article class="kpi-unit deal">
+      <TrendingDown :size="16" />
+      <span>低价可充站</span>
+      <strong>{{ overview?.lowPriceAvailable ?? '--' }}<em>个</em></strong>
+      <small>占全部 {{ share(overview?.lowPriceAvailable, overview?.total) }}% · 低价且有空闲桩</small>
     </article>
     <article class="kpi-unit pile">
       <BatteryCharging :size="16" />
-      <span>电桩覆盖率</span>
-      <strong>{{ fmt(overview?.pileCoverage) }}<em>%</em></strong>
-      <small>{{ overview?.pileTotal ?? 0 }} 根桩明细</small>
+      <span>空闲桩总数</span>
+      <strong>{{ overview?.pileIdle ?? '--' }}<em>根</em></strong>
+      <small>忙碌 {{ overview?.pileBusy ?? 0 }} 根 · 总计 {{ overview?.pileTotal ?? 0 }} 根</small>
     </article>
     <article class="kpi-unit idle">
       <Activity :size="16" />

@@ -31,6 +31,7 @@ npm run dev
 
 - `GET /api/health`
 - `GET /api/overview`
+- `GET /api/map-stations`
 - `GET /api/stations?page=1&pageSize=25&sort=priceAsc`
 - `GET /api/station?sourceKey=...`
 - `GET /api/station/history?sourceKey=...`

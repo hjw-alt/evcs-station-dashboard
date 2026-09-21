@@ -6,6 +6,7 @@ export interface Overview {
   noTou: number
   noPrice: number
   withPiles: number
+  lowPriceAvailable: number
   averagePrice: number
   pileTotal: number
   pileIdle: number
@@ -55,6 +56,33 @@ export interface Station {
   fastPower: string
   superPower: string
   slowPower: string
+}
+
+export interface MapStation {
+  sourceKey: string
+  name: string
+  city: string
+  district: string
+  address: string
+  operator: string
+  longitude: number
+  latitude: number
+  currentPrice: number
+  currentPriceText: string
+  priceLevel: 'cheap' | 'mid' | 'expensive' | 'missing'
+  pricePercentile: number
+  pileIdle: number
+  pileBusy: number
+  pileUnknown: number
+  pileTotal: number
+  idleRate: number
+  receivedAt: number
+}
+
+export interface MapStationResponse {
+  items: MapStation[]
+  total: number
+  updatedAt: number
 }
 
 export interface PricePeriod {

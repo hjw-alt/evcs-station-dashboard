@@ -3,23 +3,24 @@ package main
 import "encoding/json"
 
 type Overview struct {
-	Total        int     `json:"total"`
-	Priced       int     `json:"priced"`
-	WithTOU      int     `json:"withTou"`
-	FlatOnly     int     `json:"flatOnly"`
-	NoTOU        int     `json:"noTou"`
-	NoPrice      int     `json:"noPrice"`
-	WithPiles    int     `json:"withPiles"`
-	AveragePrice float64 `json:"averagePrice"`
-	PileTotal    int     `json:"pileTotal"`
-	PileIdle     int     `json:"pileIdle"`
-	PileBusy     int     `json:"pileBusy"`
-	PileUnknown  int     `json:"pileUnknown"`
-	UpdatedAt    int64   `json:"updatedAt"`
-	TOUCoverage  float64 `json:"touCoverage"`
-	PileCoverage float64 `json:"pileCoverage"`
-	IdleRate     float64 `json:"idleRate"`
-	BusyRate     float64 `json:"busyRate"`
+	Total             int     `json:"total"`
+	Priced            int     `json:"priced"`
+	WithTOU           int     `json:"withTou"`
+	FlatOnly          int     `json:"flatOnly"`
+	NoTOU             int     `json:"noTou"`
+	NoPrice           int     `json:"noPrice"`
+	WithPiles         int     `json:"withPiles"`
+	LowPriceAvailable int     `json:"lowPriceAvailable"`
+	AveragePrice      float64 `json:"averagePrice"`
+	PileTotal         int     `json:"pileTotal"`
+	PileIdle          int     `json:"pileIdle"`
+	PileBusy          int     `json:"pileBusy"`
+	PileUnknown       int     `json:"pileUnknown"`
+	UpdatedAt         int64   `json:"updatedAt"`
+	TOUCoverage       float64 `json:"touCoverage"`
+	PileCoverage      float64 `json:"pileCoverage"`
+	IdleRate          float64 `json:"idleRate"`
+	BusyRate          float64 `json:"busyRate"`
 }
 
 type Station struct {
@@ -107,6 +108,27 @@ type StationResponse struct {
 	Total    int       `json:"total"`
 	Page     int       `json:"page"`
 	PageSize int       `json:"pageSize"`
+}
+
+type MapStation struct {
+	SourceKey        string  `json:"sourceKey"`
+	Name             string  `json:"name"`
+	City             string  `json:"city"`
+	District         string  `json:"district"`
+	Address          string  `json:"address"`
+	Operator         string  `json:"operator"`
+	Longitude        float64 `json:"longitude"`
+	Latitude         float64 `json:"latitude"`
+	CurrentPrice     float64 `json:"currentPrice"`
+	CurrentPriceText string  `json:"currentPriceText"`
+	PriceLevel       string  `json:"priceLevel"`
+	PricePercentile  float64 `json:"pricePercentile"`
+	PileIdle         int     `json:"pileIdle"`
+	PileBusy         int     `json:"pileBusy"`
+	PileUnknown      int     `json:"pileUnknown"`
+	PileTotal        int     `json:"pileTotal"`
+	IdleRate         float64 `json:"idleRate"`
+	ReceivedAt       int64   `json:"receivedAt"`
 }
 
 type FilterMeta struct {

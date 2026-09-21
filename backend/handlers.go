@@ -23,6 +23,7 @@ func (a *API) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", a.health)
 	mux.HandleFunc("/api/overview", a.overview)
+	mux.HandleFunc("/api/map-stations", a.mapStations)
 	mux.HandleFunc("/api/stations", a.stations)
 	mux.HandleFunc("/api/station", a.stationDetail)
 	mux.HandleFunc("/api/station/history", a.stationHistory)
@@ -87,6 +88,38 @@ func (a *API) overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	err = a.store.db.QueryRowContext(ctx, `
+		WITH priced AS (
+			SELECT source_key,
+			       PERCENT_RANK() OVER (ORDER BY CAST(NULLIF(current_price,'') AS DECIMAL(10,2))) AS price_percentile
+			  FROM site_exploration_charging_station_result
+			 WHERE NULLIF(current_price,'') REGEXP '^[0-9]+([.][0-9]+)?$'
+		),
+		available AS (
+			SELECT r.source_key,
+			       SUM(CASE WHEN jt.status IN ('空闲','空') THEN 1 ELSE 0 END) AS idle_json
+			  FROM site_exploration_charging_station_result r
+			  JOIN JSON_TABLE(r.result_payload, '$.chargingPiles[*]' COLUMNS (
+			       status VARCHAR(32) PATH '$.status'
+			  )) jt
+			 GROUP BY r.source_key
+		)
+		SELECT COUNT(*)
+		  FROM site_exploration_charging_station_result r
+		  JOIN priced p ON p.source_key = r.source_key
+		  LEFT JOIN available a ON a.source_key = r.source_key
+		 WHERE p.price_percentile < 0.33
+		   AND GREATEST(
+		       COALESCE(a.idle_json, 0),
+		       CAST(COALESCE(NULLIF(r.fast_available,''),'0') AS SIGNED)
+		       + CAST(COALESCE(NULLIF(r.super_available,''),'0') AS SIGNED)
+		       + CAST(COALESCE(NULLIF(r.slow_available,''),'0') AS SIGNED)
+		   ) > 0`,
+	).Scan(&overview.LowPriceAvailable)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	overview.NoTOU = overview.FlatOnly + overview.NoTOU
 	if overview.Total > 0 {
 		overview.TOUCoverage = round(float64(overview.WithTOU)*100/float64(overview.Total), 1)
@@ -98,6 +131,116 @@ func (a *API) overview(w http.ResponseWriter, r *http.Request) {
 		overview.BusyRate = round(float64(overview.PileBusy)*100/float64(knownPiles), 1)
 	}
 	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) mapStations(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.store.db.QueryContext(r.Context(), `
+		WITH priced AS (
+			SELECT source_key,
+			       PERCENT_RANK() OVER (ORDER BY CAST(NULLIF(current_price,'') AS DECIMAL(10,2))) AS price_percentile
+			  FROM site_exploration_charging_station_result
+			 WHERE NULLIF(current_price,'') REGEXP '^[0-9]+([.][0-9]+)?$'
+		)
+		SELECT r.source_key,
+		       COALESCE(NULLIF(r.matched_station_name,''), r.requested_name, ''),
+		       COALESCE(r.city,''),
+		       COALESCE(r.district,''),
+		       COALESCE(NULLIF(r.collected_address,''), r.source_address, ''),
+		       COALESCE(r.operator,''),
+		       COALESCE(r.source_longitude,0),
+		       COALESCE(r.source_latitude,0),
+		       COALESCE(r.current_price,''),
+		       COALESCE(p.price_percentile,0),
+		       CAST(COALESCE(NULLIF(r.fast_available,''),'0') AS SIGNED),
+		       CAST(COALESCE(NULLIF(r.fast_total,''),'0') AS SIGNED),
+		       CAST(COALESCE(NULLIF(r.super_available,''),'0') AS SIGNED),
+		       CAST(COALESCE(NULLIF(r.super_total,''),'0') AS SIGNED),
+		       CAST(COALESCE(NULLIF(r.slow_available,''),'0') AS SIGNED),
+		       CAST(COALESCE(NULLIF(r.slow_total,''),'0') AS SIGNED),
+		       COALESCE(r.received_at,0)
+		  FROM site_exploration_charging_station_result r
+		  LEFT JOIN priced p ON p.source_key = r.source_key
+		 WHERE r.source_longitude BETWEEN 110 AND 117
+		   AND r.source_latitude BETWEEN 30 AND 37
+		   AND r.source_longitude <> 0
+		   AND r.source_latitude <> 0
+		 ORDER BY r.received_at DESC`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer rows.Close()
+
+	items := make([]MapStation, 0, 2600)
+	var updatedAt int64
+	for rows.Next() {
+		var item MapStation
+		var priceText string
+		var fastIdle, fastTotal, superIdle, superTotal, slowIdle, slowTotal int
+		if err := rows.Scan(
+			&item.SourceKey,
+			&item.Name,
+			&item.City,
+			&item.District,
+			&item.Address,
+			&item.Operator,
+			&item.Longitude,
+			&item.Latitude,
+			&priceText,
+			&item.PricePercentile,
+			&fastIdle,
+			&fastTotal,
+			&superIdle,
+			&superTotal,
+			&slowIdle,
+			&slowTotal,
+			&item.ReceivedAt,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		fastIdle = maxInt(fastIdle, 0)
+		fastTotal = maxInt(fastTotal, fastIdle)
+		superIdle = maxInt(superIdle, 0)
+		superTotal = maxInt(superTotal, superIdle)
+		slowIdle = maxInt(slowIdle, 0)
+		slowTotal = maxInt(slowTotal, slowIdle)
+		item.PileIdle = fastIdle + superIdle + slowIdle
+		item.PileTotal = fastTotal + superTotal + slowTotal
+		item.PileBusy = maxInt(item.PileTotal-item.PileIdle, 0)
+		if known := item.PileIdle + item.PileBusy; known > 0 {
+			item.IdleRate = round(float64(item.PileIdle)*100/float64(known), 1)
+		}
+
+		item.CurrentPriceText = priceText
+		item.CurrentPrice = parseFloat(priceText)
+		item.PriceLevel = "missing"
+		if item.CurrentPrice > 0 {
+			switch {
+			case item.PricePercentile < 0.33:
+				item.PriceLevel = "cheap"
+			case item.PricePercentile >= 0.67:
+				item.PriceLevel = "expensive"
+			default:
+				item.PriceLevel = "mid"
+			}
+		}
+		if item.ReceivedAt > updatedAt {
+			updatedAt = item.ReceivedAt
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items":     items,
+		"total":     len(items),
+		"updatedAt": updatedAt,
+	})
 }
 
 type stationFilters struct {

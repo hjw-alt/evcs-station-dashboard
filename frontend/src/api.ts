@@ -1,4 +1,12 @@
-import type { HistoryPoint, Meta, Overview, StationDetail, StationFilters, StationResponse } from './types'
+import type {
+  HistoryPoint,
+  MapStationResponse,
+  Meta,
+  Overview,
+  StationDetail,
+  StationFilters,
+  StationResponse,
+} from './types'
 
 async function request<T>(url: string): Promise<T> {
   const response = await fetch(url)
@@ -23,6 +31,10 @@ export function fetchStations(filters: StationFilters) {
 
 export function fetchMeta() {
   return request<Meta>('/api/meta')
+}
+
+export function fetchMapStations() {
+  return request<MapStationResponse>('/api/map-stations')
 }
 
 export function fetchStationDetail(sourceKey: string) {
