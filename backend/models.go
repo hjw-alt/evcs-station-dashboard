@@ -53,6 +53,7 @@ type Station struct {
 	PileBusy         int     `json:"pileBusy"`
 	PileUnknown      int     `json:"pileUnknown"`
 	PileTotal        int     `json:"pileTotal"`
+	HasPileDetails   bool    `json:"hasPileDetails"`
 	IdleRate         float64 `json:"idleRate"`
 	CapturedAt       int64   `json:"capturedAt"`
 	ReceivedAt       int64   `json:"receivedAt"`

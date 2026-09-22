@@ -5,12 +5,12 @@ import { MapChart, ScatterChart } from 'echarts/charts'
 import { GeoComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { CircleDollarSign, MapPinned, TimerReset, X } from 'lucide-vue-next'
-import henanGeoJSON from '../assets/henan.json'
+import henanCountiesGeoJSON from '../assets/henan-counties.json'
 import type { HistoryPoint, MapStation, StationDetail } from '../types'
 import StationDetailPanel from './StationDetail.vue'
 
 echarts.use([MapChart, ScatterChart, GeoComponent, TooltipComponent, CanvasRenderer])
-echarts.registerMap('henan', henanGeoJSON as never)
+echarts.registerMap('henan-counties', henanCountiesGeoJSON as never)
 
 const props = defineProps<{
   visible: boolean
@@ -132,18 +132,23 @@ function buildOption() {
       },
     },
     geo: {
-      map: 'henan',
+      map: 'henan-counties',
       roam: true,
       zoom: 1.12,
+      scaleLimit: { min: 1, max: 10 },
       center: [113.4, 34.1],
       itemStyle: {
         areaColor: '#0e1c18',
         borderColor: '#31574a',
-        borderWidth: 1,
+        borderWidth: 0.6,
       },
-      label: { show: true, color: '#5d7a70', fontSize: 9 },
+      label: {
+        show: false,
+        color: '#5d7a70',
+        fontSize: 8,
+      },
       emphasis: {
-        label: { color: '#dceae5', fontSize: 10 },
+        label: { show: true, color: '#dceae5', fontSize: 9 },
         itemStyle: { areaColor: '#173129' },
       },
       select: { disabled: true },
@@ -180,10 +185,12 @@ function render() {
   chart.setOption(buildOption(), true)
   chart.resize()
   chart.off('click')
+  chart.off('georoam')
   chart.on('click', (params: unknown) => {
     const sourceKey = (params as { data?: { sourceKey?: string } | null }).data?.sourceKey
     if (sourceKey) emit('select', sourceKey)
   })
+
 }
 
 async function showMap() {
@@ -219,7 +226,7 @@ onBeforeUnmount(() => {
           <div>
             <span class="map-kicker"><MapPinned :size="12" /> HENAN · CHARGING NETWORK</span>
             <h2>河南重卡充电站地图总览</h2>
-            <p>点颜色代表电价高低；点击站点可查看完整详情。</p>
+            <p>点颜色代表电价高低；放大地图查看区县边界，悬浮查看区县名称，点击站点查看详情。</p>
             <div class="map-legend">
               <span><i class="dot cheap"></i>低价</span>
               <span><i class="dot mid"></i>中位</span>
@@ -228,6 +235,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="map-head-actions">
+
             <span class="map-updated"><TimerReset :size="12" /> 最近入库 {{ fmtTime(updatedAt) }}</span>
             <button class="icon-button" title="关闭地图总览" @click="emit('close')"><X :size="17" /></button>
           </div>

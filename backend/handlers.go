@@ -264,8 +264,8 @@ func parseStationFilters(r *http.Request) stationFilters {
 	if pageSize < 10 {
 		pageSize = 25
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	if pageSize > 3000 {
+		pageSize = 3000
 	}
 	return stationFilters{
 		Keyword:   strings.TrimSpace(r.URL.Query().Get("keyword")),
@@ -457,7 +457,8 @@ func stationFromRaw(raw rawStation) Station {
 		SuperIdle: superIdle, SuperBusy: superBusy, SuperTotal: superTotal,
 		SlowIdle: slowIdle, SlowBusy: slowBusy, SlowTotal: slowTotal,
 		PileIdle: pileIdle, PileBusy: pileBusy, PileUnknown: pileUnknown, PileTotal: pileTotal,
-		IdleRate: idleRate, CapturedAt: raw.CapturedAt, ReceivedAt: raw.ReceivedAt,
+		HasPileDetails: len(payload.ChargingPiles) > 0,
+		IdleRate:       idleRate, CapturedAt: raw.CapturedAt, ReceivedAt: raw.ReceivedAt,
 		CollectionSource: raw.CollectionSource, FastPower: raw.FastPower,
 		SuperPower: raw.SuperPower, SlowPower: raw.SlowPower,
 	}

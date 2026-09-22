@@ -49,6 +49,7 @@ export interface Station {
   pileBusy: number
   pileUnknown: number
   pileTotal: number
+  hasPileDetails: boolean
   idleRate: number
   capturedAt: number
   receivedAt: number

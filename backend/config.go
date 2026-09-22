@@ -89,7 +89,7 @@ func dsnFromURL(raw string) (string, error) {
 		port = "3306"
 	}
 	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
+		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&timeout=20s&readTimeout=30s&writeTimeout=30s",
 		parsed.User.Username(), password, parsed.Hostname(), port, database,
 	), nil
 }

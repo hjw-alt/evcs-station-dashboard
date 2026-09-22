@@ -9,6 +9,7 @@ import HenanMap from './components/HenanMap.vue'
 import StationTable from './components/StationTable.vue'
 import StationDetailPanel from './components/StationDetail.vue'
 
+const viewMode = ref<'list' | 'card'>('card')
 const overview = ref<Overview | null>(null)
 const meta = ref<Meta | null>(null)
 const stations = ref<Station[]>([])
@@ -29,14 +30,14 @@ let previousBodyOverflow = ''
 
 const filters = reactive<StationFilters>({
   keyword: '',
-  city: '',
+  city: '郑州市',
   operator: '',
   tou: '',
   priceBand: '',
   piles: '',
   sort: 'updated',
   page: 1,
-  pageSize: 25,
+  pageSize: 3000,
 })
 
 async function loadOverview() {
@@ -122,6 +123,14 @@ function applyFilters(next: StationFilters) {
   Object.assign(filters, next)
   detail.value = null
   selectedKey.value = ''
+  void loadStations()
+}
+
+function setViewMode(mode: 'list' | 'card') {
+  if (viewMode.value === mode) return
+  viewMode.value = mode
+  filters.pageSize = mode === 'card' ? 3000 : 25
+  filters.page = 1
   void loadStations()
 }
 
@@ -216,8 +225,11 @@ onBeforeUnmount(() => {
         :page="filters.page"
         :page-size="filters.pageSize"
         :selected-key="selectedKey"
+        :view-mode="viewMode"
+        :selected-city="filters.city"
         @select="selectStation"
         @page="changePage"
+        @update:view-mode="setViewMode"
       />
       <StationDetailPanel :detail="detail" :history="history" :loading="detailLoading" @close="closeDetail" />
     </main>

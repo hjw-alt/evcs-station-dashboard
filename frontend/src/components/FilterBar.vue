@@ -37,7 +37,7 @@ function apply() {
 
     <label>
       <span>城市</span>
-      <select v-model="draft.city">
+      <select v-model="draft.city" @change="apply">
         <option value="">全部城市</option>
         <option v-for="item in meta?.cities" :key="item.name" :value="item.name">{{ item.name }} · {{ item.count }}</option>
       </select>
