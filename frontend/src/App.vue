@@ -2,18 +2,24 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Activity, MapPinned, RefreshCw, Server } from 'lucide-vue-next'
 import { fetchMapStations, fetchMeta, fetchOverview, fetchStationDetail, fetchStationHistory, fetchStations } from './api'
-import type { HistoryPoint, MapStation, Meta, Overview, Station, StationDetail, StationFilters } from './types'
+import type { Availability, StationSummary, HistoryPoint, MapStation, Meta, Overview, Station, StationDetail, StationFilters } from './types'
 import KpiStrip from './components/KpiStrip.vue'
 import FilterBar from './components/FilterBar.vue'
 import HenanMap from './components/HenanMap.vue'
 import StationTable from './components/StationTable.vue'
 import StationDetailPanel from './components/StationDetail.vue'
+import StationInsights from './components/StationInsights.vue'
 
+const REFRESH_INTERVAL_MS = 5 * 60_000
 const viewMode = ref<'list' | 'card'>('card')
 const overview = ref<Overview | null>(null)
 const meta = ref<Meta | null>(null)
 const stations = ref<Station[]>([])
 const total = ref(0)
+const summary = ref<StationSummary | null>(null)
+const summaryError = ref('')
+let stationRequestId = 0
+let detailRequestId = 0
 const loading = ref(true)
 const detailLoading = ref(false)
 const selectedKey = ref('')
@@ -29,13 +35,14 @@ let refreshTimer: number | undefined
 let previousBodyOverflow = ''
 
 const filters = reactive<StationFilters>({
+  availability: '',
   keyword: '',
   city: '郑州市',
   operator: '',
   tou: '',
   priceBand: '',
   piles: '',
-  sort: 'updated',
+  sort: 'idleDesc',
   page: 1,
   pageSize: 3000,
 })
@@ -45,14 +52,31 @@ async function loadOverview() {
   refreshedAt.value = Math.floor(Date.now() / 1000)
 }
 
-async function loadStations() {
-  loading.value = true
+async function loadStations(silent = false) {
+  const requestId = ++stationRequestId
+  const requestedFilters = { ...filters }
+  if (!silent) {
+    loading.value = true
+    summary.value = null
+  }
+  summaryError.value = ''
   try {
-    const response = await fetchStations(filters)
+    const response = await fetchStations(requestedFilters)
+    if (requestId !== stationRequestId) return
     stations.value = response.items || []
     total.value = response.total
+    summary.value = response.summary ?? null
+    if (!response.summary) {
+      summaryError.value = '站点接口缺少概览数据，请更新并重启后端服务后重试。'
+    }
+  } catch (err) {
+    if (requestId !== stationRequestId) return
+    const message = err instanceof Error ? err.message : String(err)
+    error.value = message
+    summaryError.value = message
+    summary.value = null
   } finally {
-    loading.value = false
+    if (requestId === stationRequestId) loading.value = false
   }
 }
 
@@ -66,19 +90,25 @@ async function loadAll() {
 }
 
 async function selectBySourceKey(sourceKey: string) {
+  const requestId = ++detailRequestId
   selectedKey.value = sourceKey
+  detail.value = null
+  history.value = []
   detailLoading.value = true
   try {
     const [stationDetail, stationHistory] = await Promise.all([
       fetchStationDetail(sourceKey),
       fetchStationHistory(sourceKey),
     ])
+    if (requestId !== detailRequestId) return
     detail.value = stationDetail
     history.value = stationHistory.items || []
   } catch (err) {
+    if (requestId !== detailRequestId) return
     error.value = err instanceof Error ? err.message : String(err)
+    closeDetail()
   } finally {
-    detailLoading.value = false
+    if (requestId === detailRequestId) detailLoading.value = false
   }
 }
 
@@ -114,15 +144,12 @@ async function selectMapStation(sourceKey: string) {
 }
 
 function clearMapDetail() {
-  detail.value = null
-  history.value = []
-  selectedKey.value = ''
+  closeDetail()
 }
 
 function applyFilters(next: StationFilters) {
   Object.assign(filters, next)
-  detail.value = null
-  selectedKey.value = ''
+  closeDetail()
   void loadStations()
 }
 
@@ -135,8 +162,9 @@ function setViewMode(mode: 'list' | 'card') {
 }
 
 function resetFilters() {
+  closeDetail()
   Object.assign(filters, {
-    keyword: '', city: '', operator: '', tou: '', priceBand: '', piles: '', sort: 'updated', page: 1,
+    keyword: '', city: '', operator: '', tou: '', priceBand: '', piles: '', availability: '', sort: 'idleDesc', page: 1,
   })
   void loadStations()
 }
@@ -147,9 +175,15 @@ function changePage(page: number) {
 }
 
 function closeDetail() {
+  ++detailRequestId
+  detailLoading.value = false
   selectedKey.value = ''
   detail.value = null
   history.value = []
+}
+
+function filterAvailability(availability: Availability | '') {
+  applyFilters({ ...filters, availability, page: 1 })
 }
 
 function fmtTime(epoch: number) {
@@ -166,11 +200,13 @@ onMounted(async () => {
   if (params.get('map') === '1') await openMap()
   refreshTimer = window.setInterval(() => {
     void loadOverview().catch(() => undefined)
-    void loadStations().catch(() => undefined)
-  }, 60_000)
+    void loadStations(true).catch(() => undefined)
+  }, REFRESH_INTERVAL_MS)
 })
 
 onBeforeUnmount(() => {
+  ++stationRequestId
+  ++detailRequestId
   if (refreshTimer) window.clearInterval(refreshTimer)
   document.body.style.overflow = previousBodyOverflow
 })
@@ -231,7 +267,17 @@ onBeforeUnmount(() => {
         @page="changePage"
         @update:view-mode="setViewMode"
       />
-      <StationDetailPanel :detail="detail" :history="history" :loading="detailLoading" @close="closeDetail" />
+      <StationInsights
+        v-if="!selectedKey"
+        :summary="summary"
+        :filters="filters"
+        :loading="loading"
+        :error="summaryError"
+        @select="selectStation"
+        @filter-availability="filterAvailability"
+        @retry="loadAll"
+      />
+      <StationDetailPanel v-else :detail="detail" :history="history" :loading="detailLoading" @close="closeDetail" />
     </main>
   </div>
 </template>

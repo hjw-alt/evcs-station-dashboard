@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>站点卡片加载布局回归测试</title>
+  <style>
+    html, body { height: auto !important; min-width: 0 !important; overflow: auto !important; }
+    body { padding: 16px; }
+    h1 { font-size: 18px; }
+    #results { font: 13px/1.6 monospace; white-space: pre-wrap; }
+    #controls { display: flex; gap: 8px; margin: 12px 0; }
+    #fixture { width: 960px; height: 620px; display: flex; }
+    #fixture > .table-panel { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>站点卡片加载布局回归测试</h1>
+  <pre id="results" role="status">正在运行…</pre>
+  <div id="controls">
+    <button id="loading">预览骨架</button>
+    <button id="loaded">预览卡片</button>
+    <button id="empty">预览空结果</button>
+  </div>
+  <div id="fixture"></div>
+  <script type="module">
+    // Run with `npm run dev`, then open /tests/station-card-layout.html.
+    // Real-browser geometry assertions; no backend or extra test dependencies.
+    import { createApp, h, nextTick, reactive } from 'vue'
+    import StationTable from '/src/components/StationTable.vue'
+    import { readChartTheme } from '/src/theme.ts'
+    import '/src/styles.css'
+
+    const fixture = document.querySelector('#fixture')
+    const output = document.querySelector('#results')
+    const stations = Array.from({ length: 120 }, (_, index) => ({
+      sourceKey: `test-${index}`, sourceStationId: `test-${index}`,
+      matchedName: `测试充电站 ${index + 1}`, requestedName: '',
+      city: '郑州市', district: '测试区域', operator: '测试运营商',
+      currentPriceText: '0.90', priceLevel: 'cheap', hasTou: true,
+      pricePeriodCount: 4, fastTotal: 10, superTotal: 0, slowTotal: 0,
+      hasPileDetails: true, pileTotal: 10, pileIdle: 6, idleRate: 60,
+      receivedAt: 0,
+    }))
+    const state = reactive({
+      items: [], loading: true, total: 0, page: 1, pageSize: 3000,
+      selectedKey: '', viewMode: 'card', selectedCity: '',
+    })
+    createApp({
+      render: () => h(StationTable, {
+        ...state,
+        onSelect: station => { state.selectedKey = station.sourceKey },
+        'onUpdate:viewMode': mode => { state.viewMode = mode },
+      }),
+    }).mount(fixture)
+
+    async function render(patch) {
+      Object.assign(state, patch)
+      await nextTick()
+      await new Promise(requestAnimationFrame)
+      // Let ResizeObserver measurements and their Vue updates settle before assertions.
+      await nextTick()
+      await new Promise(requestAnimationFrame)
+    }
+    function assert(condition, message) {
+      if (!condition) throw new Error(message)
+    }
+    function close(a, b) { return Math.abs(a - b) < 1 }
+    function geometry() {
+      const scroll = fixture.querySelector('.card-scroll')
+      const group = fixture.querySelector('.city-group')
+      const grid = fixture.querySelector('.station-card-grid')
+      const cards = [...grid.querySelectorAll('.station-card')]
+      const rect = grid.getBoundingClientRect()
+      const scrollRect = scroll.getBoundingClientRect()
+      const css = getComputedStyle(scroll)
+      const first = cards[0].getBoundingClientRect()
+      assert(grid.parentElement === group, '骨架和卡片必须共用 city-group 容器')
+      assert(close(rect.right, scrollRect.right - parseFloat(css.paddingRight)), '滚动区域右边界必须贴合内容区右侧')
+      assert(close(rect.left, scrollRect.left + parseFloat(css.paddingLeft)), '网格左边界异常')
+      assert(close(rect.width, group.getBoundingClientRect().width), '网格未撑满容器')
+      assert(grid.scrollWidth <= grid.clientWidth, '网格出现横向溢出')
+      assert(cards[1].getBoundingClientRect().left > first.left, '骨架退化为单列')
+      assert(cards.some(card => card.getBoundingClientRect().top > first.top), '骨架没有多行')
+      assert(first.width >= 128 && first.width < 170 && close(first.height, 88), '卡片未保持适度放大的尺寸')
+      const firstRow = cards.filter(card => close(card.getBoundingClientRect().top, first.top))
+      const lastRight = firstRow.at(-1).getBoundingClientRect().right
+      assert(close(lastRight, rect.left + grid.clientWidth - parseFloat(getComputedStyle(grid).paddingRight)), '每行应均分剩余宽度，不能在右侧留下空列')
+      for (const card of firstRow) {
+        assert(card.scrollHeight <= card.clientHeight, '卡片内容纵向溢出')
+        if (card.classList.contains('skeleton-card')) continue
+        for (const selector of ['.card-price', '.card-pile-type', '.card-load-meta']) {
+          const line = card.querySelector(selector)
+          assert(line.scrollWidth <= line.clientWidth, `${selector} 信息被截断`)
+        }
+        const cardRect = card.getBoundingClientRect()
+        const bar = card.querySelector('.load-track').getBoundingClientRect()
+        assert(bar.height === 4 && bar.width >= 100, '空闲进度条没有完整展示')
+        assert(bar.bottom <= cardRect.bottom - 6, '卡片底部没有保留呼吸空间')
+        assert(parseFloat(getComputedStyle(card.querySelector('.card-name')).fontSize) >= 11, '站名字体太小')
+        assert(parseFloat(getComputedStyle(card.querySelector('.card-price strong')).fontSize) >= 17, '电价字体太小')
+      }
+      assert(document.documentElement.scrollHeight >= rect.bottom, '网格越出页面')
+      return { grid, rect, columns: getComputedStyle(grid).gridTemplateColumns }
+    }
+
+    function skeletonCoverage() {
+      const { grid, rect, columns } = geometry()
+      const cards = [...grid.querySelectorAll('.skeleton-card')]
+      const columnCount = columns.split(' ').length
+      const css = getComputedStyle(grid)
+      const rowHeight = parseFloat(css.gridAutoRows)
+      const gap = parseFloat(css.rowGap)
+      const expectedRows = Math.ceil((grid.clientHeight + gap) / (rowHeight + gap))
+      assert(cards.length > 0 && cards.length % columnCount === 0, '骨架最后一行没有填满')
+      assert(cards.length === columnCount * expectedRows, '骨架数量应刚好覆盖可视区域，而非固定数量')
+      assert(close(rect.bottom, grid.parentElement.getBoundingClientRect().bottom), '骨架网格没有撑满卡片区域高度')
+      assert(cards.at(-1).getBoundingClientRect().bottom >= rect.bottom - 1, '骨架底部仍有大块留白')
+      const scroll = fixture.querySelector('.card-scroll')
+      assert(scroll.scrollHeight <= scroll.clientHeight, '骨架不能撑开外层滚动区域')
+      assert(css.overflowY === 'hidden', '多出视口的最后一行应裁切，不应出现无意义的骨架滚动条')
+      return cards.length
+    }
+
+    const results = []
+    try {
+      for (const width of [550, 620, 690, 960, 1048, 1280]) {
+        fixture.style.width = `${width}px`
+        for (const selectedCity of ['', '郑州市']) {
+          await render({ selectedCity, loading: true, items: [], total: 0 })
+          skeletonCoverage()
+          assert(fixture.querySelector('.card-scroll').getAttribute('aria-busy') === 'true', '缺少加载状态')
+          assert(!fixture.querySelector('.pagination').textContent.includes('已加载全部'), '加载时不应显示已加载全部')
+          const initial = geometry()
+          await render({ loading: false, items: stations, total: stations.length })
+          const loaded = geometry()
+          assert(loaded.grid === initial.grid, '加载完成不应替换滚动容器')
+          assert(close(initial.rect.top, loaded.rect.top), '城市标题导致加载前后网格跳动')
+          assert(initial.columns === loaded.columns, '加载前后网格列数不一致')
+          assert(fixture.querySelector('.card-scroll').getAttribute('aria-busy') === 'false', '加载状态未清除')
+          assert(loaded.grid.scrollHeight > loaded.grid.clientHeight, '大量卡片应能纵向滚动')
+          await render({ loading: true })
+          const refresh = geometry()
+          skeletonCoverage()
+          assert(refresh.grid === loaded.grid, '刷新不应替换滚动容器')
+          assert(refresh.columns === loaded.columns, '刷新时网格列数发生变化')
+          assert(fixture.querySelectorAll('button.station-card').length === 0, '刷新时应显示骨架而非旧卡片')
+          results.push(`PASS ${width}px / ${selectedCity || '全部城市'}：初次加载、正常卡片、刷新布局一致`)
+        }
+      }
+      // Resize repeatedly while loading, including a panel taller than the old 14-row cap.
+      for (const [width, height] of [[1280, 800], [1920, 900], [690, 360], [960, 1600], [1280, 480], [1280, 1000]]) {
+        fixture.style.width = `${width}px`
+        fixture.style.height = `${height}px`
+        for (const selectedCity of ['', '郑州市']) {
+          await render({ loading: true, selectedCity })
+          const count = skeletonCoverage()
+          results.push(`PASS ${width}×${height} / ${selectedCity || '全部城市'}：${count} 张骨架完整铺满`)
+        }
+      }
+      fixture.style.height = '620px'
+      for (const sample of [
+        { label: '三位数电桩数量', fastTotal: 999, superTotal: 999, slowTotal: 999, pileIdle: 999, pileTotal: 999, idleRate: 100 },
+        { label: '无桩详情、无价格', hasPileDetails: false, currentPriceText: '' },
+        { label: '满载状态', pileIdle: 0, idleRate: 0 },
+      ]) {
+        fixture.style.width = '568px'
+        await render({ loading: false, selectedCity: '郑州市', items: stations.map(station => ({ ...station, ...sample })) })
+        geometry()
+        results.push(`PASS ${sample.label}：最小卡片宽度下文字和进度条完整`)
+      }
+      await render({ loading: false, items: [], total: 0 })
+      assert(fixture.querySelector('.card-empty')?.textContent.includes('没有符合当前条件的站点'), '空结果提示不可达')
+      assert(!fixture.querySelector('.station-card-grid'), '空结果不应残留网格')
+      results.push('PASS 空结果提示')
+      await render({ viewMode: 'list', loading: true })
+      assert(fixture.querySelectorAll('.skeleton-row').length === 8, '列表骨架受影响')
+      await render({ loading: false, items: stations.slice(0, 2), total: 2 })
+      assert(fixture.querySelectorAll('.station-table tbody tr').length === 2, '列表内容受影响')
+      results.push('PASS 列表加载和正常显示')
+      await render({ viewMode: 'card', loading: true, items: [], total: 0 })
+      skeletonCoverage()
+      results.push('PASS 列表切回卡片后重新测量并铺满')
+      const orderedStations = [100, 80, 50, 20, 0, 0].map((idleRate, index) => ({
+        ...stations[index], matchedName: '排序测试 ' + index, idleRate,
+        pileIdle: idleRate / 10, hasPileDetails: index !== 5,
+      }))
+      const cardNames = () => [...fixture.querySelectorAll('.card-name')].map(node => node.textContent.trim())
+      for (const selectedCity of ['', '郑州市']) {
+        await render({ viewMode: 'card', selectedCity, loading: false, items: orderedStations, total: orderedStations.length })
+        const expected = orderedStations.map(station => station.matchedName)
+        assert(JSON.stringify(cardNames()) === JSON.stringify(expected), '卡片不能打乱接口的空闲率排序')
+        await render({ loading: true })
+        await render({ loading: false, items: orderedStations.map(station => ({ ...station })) })
+        assert(JSON.stringify(cardNames()) === JSON.stringify(expected), '刷新后应保持同样的空闲率顺序')
+        const alternativeOrder = [...orderedStations].reverse()
+        await render({ items: alternativeOrder })
+        assert(JSON.stringify(cardNames()) === JSON.stringify(alternativeOrder.map(station => station.matchedName)), '手动选择其他排序也应保留接口顺序')
+        results.push('PASS ' + (selectedCity || '全部城市') + '：保留空闲率排序、刷新稳定、支持手动切换排序')
+      }
+      // Theme regressions exercise the production component and CSS, not replica markup.
+      const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number)
+      const luminance = value => rgb(value).map(channel => {
+        const s = channel / 255
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+      }).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0)
+      const contrast = (foreground, background) => {
+        const a = luminance(foreground), b = luminance(background)
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+      }
+      assert(getComputedStyle(document.documentElement).colorScheme === 'light', '原生控件应使用浅色模式')
+      assert(getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)', '页面背景应为纯白')
+      results.push('PASS 云白背景和浅色原生控件')
+      for (const sample of [
+        { label: '空闲', className: 'idle', idleRate: 80, background: 'rgb(237, 248, 242)' },
+        { label: '适中', className: 'moderate', idleRate: 30, background: 'rgb(255, 247, 230)' },
+        { label: '满载', className: 'full', idleRate: 0, background: 'rgb(255, 240, 242)' },
+        { label: '无数据', className: 'unknown', idleRate: 0, hasPileDetails: false, background: 'rgb(243, 245, 248)' },
+      ]) {
+        await render({ viewMode: 'card', loading: false, selectedKey: '', items: [{ ...stations[0], ...sample }], total: 1 })
+        const card = fixture.querySelector('button.station-card')
+        assert(card.classList.contains(sample.className), sample.label + '状态类别不正确')
+        const background = getComputedStyle(card).backgroundColor
+        assert(background === sample.background, sample.label + '应使用浅色状态底色')
+        for (const selector of ['.card-name', '.card-price strong', '.card-price small', '.card-pile-type', '.card-load-meta small:first-child', '.card-load-meta small:last-child']) {
+          const ratio = contrast(getComputedStyle(card.querySelector(selector)).color, background)
+          assert(ratio >= 4.5, sample.label + ' ' + selector + '文字对比度不足：' + ratio.toFixed(2))
+        }
+        await render({ selectedKey: stations[0].sourceKey })
+        assert(getComputedStyle(card).borderTopColor === 'rgb(40, 101, 220)', '选中边框应为科技蓝')
+        assert(getComputedStyle(card).backgroundColor === background, '选中不应覆盖状态底色')
+        results.push('PASS ' + sample.label + '卡片：浅色底、清晰文字、蓝色选中框')
+      }
+      const activeTab = getComputedStyle(fixture.querySelector('.view-tabs button.active'))
+      assert(activeTab.backgroundColor === 'rgb(40, 101, 220)', '活动标签应使用科技蓝')
+      assert(contrast(activeTab.color, activeTab.backgroundColor) >= 4.5, '活动标签文字对比度不足')
+      results.push('PASS 科技蓝活动标签和白字对比度')
+      const chartTheme = readChartTheme()
+      assert(chartTheme.panel === '#ffffff' && chartTheme.primary === '#2865dc', '图表应读取云白科技蓝主题')
+      for (const [name, value] of Object.entries(chartTheme)) {
+        assert(value && CSS.supports('color', value) && !value.includes('var('), '图表颜色未解析：' + name)
+      }
+      results.push('PASS 图表与地图主题颜色解析')
+      await render({ loading: true })
+      assert(getComputedStyle(fixture.querySelector('.skeleton-card')).backgroundColor === 'rgb(247, 249, 252)', '骨架应使用浅灰蓝底色')
+      skeletonCoverage()
+      results.push('PASS 浅色骨架仍完整铺满卡片区域')
+      output.textContent = `全部 ${results.length} 项测试通过\n${results.join('\n')}`
+      output.dataset.result = 'passed'
+    } catch (error) {
+      output.textContent = `${results.join('\n')}\nFAIL ${error.message}`
+      output.dataset.result = 'failed'
+      console.error(error)
+    }
+    fixture.style.width = '1280px'
+    fixture.style.height = '800px'
+    await render({ viewMode: 'card', selectedCity: '', loading: true, items: stations, total: stations.length })
+    document.querySelector('#loading').onclick = () => render({ loading: true })
+    document.querySelector('#loaded').onclick = () => render({ loading: false, items: stations, total: stations.length })
+    document.querySelector('#empty').onclick = () => render({ loading: false, items: [], total: 0 })
+  </script>
+</body>
+</html>

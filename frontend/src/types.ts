@@ -136,7 +136,25 @@ export interface Meta {
   operators: Facet[]
 }
 
+export type Availability = 'idle' | 'moderate' | 'full' | 'unknown'
+
+export interface StationSummary {
+  total: number
+  availability: Record<Availability, number>
+  topAvailable: Station[]
+  freshness: {
+    recent: number
+    stale: number
+    unknown: number
+    missingPrice: number
+    missingPiles: number
+  }
+  asOf: number
+  freshnessWindowSeconds: number
+}
+
 export interface StationResponse {
+  summary: StationSummary
   items: Station[]
   total: number
   page: number
@@ -144,6 +162,7 @@ export interface StationResponse {
 }
 
 export interface StationFilters {
+  availability: Availability | ''
   keyword: string
   city: string
   operator: string

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { readChartTheme } from '../theme'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts/core'
 import { MapChart, ScatterChart } from 'echarts/charts'
@@ -74,6 +75,7 @@ function fmtPrice(value: number) {
 }
 
 function buildOption() {
+  const theme = readChartTheme()
   const data = props.items.map(item => ({
     name: item.name,
     value: [
@@ -92,13 +94,13 @@ function buildOption() {
     operator: item.operator,
     itemStyle: {
       color: item.priceLevel === 'cheap'
-        ? '#31d17d'
+        ? theme.green
         : item.priceLevel === 'expensive'
-          ? '#f16f61'
+          ? theme.red
           : item.priceLevel === 'mid'
-            ? '#f0b43d'
-            : '#52675f',
-      borderColor: '#dceae5',
+            ? theme.amber
+            : theme.unknown,
+      borderColor: theme.panel,
       borderWidth: 1,
       opacity: 0.9,
     },
@@ -109,11 +111,11 @@ function buildOption() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#0c1513',
-      borderColor: '#2a463d',
+      backgroundColor: theme.panel,
+      borderColor: theme.lineStrong,
       borderWidth: 1,
       padding: 10,
-      textStyle: { color: '#dceae5', fontSize: 11 },
+      textStyle: { color: theme.text, fontSize: 11 },
       formatter: (params: { data?: { name?: string; currentPriceText?: string; value?: unknown[]; operator?: string } }) => {
         const item = params.data
         if (!item?.value) return escapeHtml(item?.name || '充电站')
@@ -124,8 +126,8 @@ function buildOption() {
           `当前电价：${price ? `${Number(price).toFixed(2)} 元/kWh` : '暂无'}`,
           `空闲桩：${pileIdle ?? 0} / ${pileTotal ?? 0}（${Number(idleRate ?? 0).toFixed(0)}%）`,
           item.operator ? `运营商：${escapeHtml(item.operator)}` : '',
-          address ? `<span style="color:#748d84">${escapeHtml(String(address))}</span>` : '',
-          '<span style="color:#31d17d">点击查看站点详情</span>',
+          address ? `<span style="color:${theme.muted}">${escapeHtml(String(address))}</span>` : '',
+          `<span style="color:${theme.primary}">点击查看站点详情</span>`,
         ]
           .filter(Boolean)
           .join('<br/>')
@@ -138,18 +140,18 @@ function buildOption() {
       scaleLimit: { min: 1, max: 10 },
       center: [113.4, 34.1],
       itemStyle: {
-        areaColor: '#0e1c18',
-        borderColor: '#31574a',
+        areaColor: theme.mapArea,
+        borderColor: theme.lineStrong,
         borderWidth: 0.6,
       },
       label: {
         show: false,
-        color: '#5d7a70',
+        color: theme.muted,
         fontSize: 8,
       },
       emphasis: {
-        label: { show: true, color: '#dceae5', fontSize: 9 },
-        itemStyle: { areaColor: '#173129' },
+        label: { show: true, color: theme.text, fontSize: 9 },
+        itemStyle: { areaColor: theme.mapHover },
       },
       select: { disabled: true },
     },
@@ -162,7 +164,7 @@ function buildOption() {
         symbol: 'circle',
         symbolSize: 6,
         itemStyle: {
-          borderColor: '#dceae5',
+          borderColor: theme.panel,
           borderWidth: 0.5,
           opacity: 0.78,
         },

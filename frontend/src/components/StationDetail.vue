@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TitleComponent, TooltipComponent } from 'echarts/components'
+import { DataZoomComponent, GridComponent, TitleComponent, TooltipComponent } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { Activity, BatteryCharging, Clock3, MapPin, X, Zap } from 'lucide-vue-next'
 import type { HistoryPoint, PileDetail, PricePeriod, StationDetail } from '../types'
+import { readChartTheme } from '../theme'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, TitleComponent, CanvasRenderer])
+echarts.use([LineChart, DataZoomComponent, GridComponent, TooltipComponent, TitleComponent, CanvasRenderer])
 
 const props = defineProps<{
   detail: StationDetail | null
@@ -46,34 +47,35 @@ function renderPriceChart() {
   }
   priceChart ??= echarts.init(priceChartRef.value)
   priceChart.resize()
+  const theme = readChartTheme()
   if (!periods.value.length) {
     priceChart.clear()
-    priceChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无分时价格', left: 'center', top: 'middle', textStyle: { color: '#59766d', fontSize: 12, fontWeight: 400 } } })
+    priceChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无分时价格', left: 'center', top: 'middle', textStyle: { color: theme.muted, fontSize: 12, fontWeight: 400 } } })
     return
   }
   priceChart.setOption({
     animationDuration: 400,
     grid: { left: 44, right: 12, top: 22, bottom: 28 },
-    tooltip: { trigger: 'axis', backgroundColor: '#0c1513', borderColor: '#274038', textStyle: { color: '#dcebe5', fontSize: 11 } },
+    tooltip: { trigger: 'axis', backgroundColor: theme.panel, borderColor: theme.lineStrong, textStyle: { color: theme.text, fontSize: 11 } },
     xAxis: {
       type: 'category',
       data: periods.value.map(item => item.time || '当前时段'),
-      axisLabel: { color: '#78958b', fontSize: 10, interval: 0, rotate: periods.value.length > 4 ? 18 : 0 },
-      axisLine: { lineStyle: { color: '#223832' } },
+      axisLabel: { color: theme.muted, fontSize: 10, interval: 0, rotate: periods.value.length > 4 ? 18 : 0 },
+      axisLine: { lineStyle: { color: theme.lineStrong } },
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#78958b', fontSize: 10 },
-      splitLine: { lineStyle: { color: '#182a25' } },
+      axisLabel: { color: theme.muted, fontSize: 10 },
+      splitLine: { lineStyle: { color: theme.line } },
     },
     series: [{
       type: 'line',
       step: 'end',
       symbolSize: 7,
       data: periods.value.map(item => numeric(item.totalPrice)),
-      lineStyle: { color: '#31d17d', width: 2 },
-      itemStyle: { color: '#31d17d' },
-      areaStyle: { color: 'rgba(49,209,125,.10)' },
+      lineStyle: { color: theme.primary, width: 2 },
+      itemStyle: { color: theme.primary },
+      areaStyle: { color: theme.primaryArea },
     }],
   }, true)
 }
@@ -90,28 +92,57 @@ function renderHistoryChart() {
   }
   historyChart ??= echarts.init(historyChartRef.value)
   historyChart.resize()
+  const theme = readChartTheme()
   if (!props.history.length) {
     historyChart.clear()
-    historyChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无历史快照', left: 'center', top: 'middle', textStyle: { color: '#59766d', fontSize: 12, fontWeight: 400 } } })
+    historyChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无历史快照', left: 'center', top: 'middle', textStyle: { color: theme.muted, fontSize: 12, fontWeight: 400 } } })
     return
   }
+  const historyWindowSize = 24
+  const historyStart = props.history.length > historyWindowSize
+    ? Math.max(0, 100 - historyWindowSize * 100 / props.history.length)
+    : 0
   historyChart.setOption({
     animationDuration: 400,
-    grid: { left: 44, right: 42, top: 20, bottom: 28 },
-    tooltip: { trigger: 'axis', backgroundColor: '#0c1513', borderColor: '#274038', textStyle: { color: '#dcebe5', fontSize: 11 } },
+    grid: { left: 44, right: 42, top: 20, bottom: 58 },
+    dataZoom: [
+      {
+        type: 'inside',
+        start: historyStart,
+        end: 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+      },
+      {
+        type: 'slider',
+        start: historyStart,
+        end: 100,
+        bottom: 4,
+        height: 16,
+        borderColor: theme.lineStrong,
+        backgroundColor: theme.surface,
+        fillerColor: theme.primarySelection,
+        handleStyle: { color: theme.primary, borderColor: theme.primary },
+        moveHandleStyle: { color: theme.primary },
+        textStyle: { color: theme.muted, fontSize: 9 },
+        dataBackground: { lineStyle: { color: theme.lineStrong }, areaStyle: { color: theme.line } },
+        selectedDataBackground: { lineStyle: { color: theme.primary }, areaStyle: { color: theme.primarySelection } },
+      },
+    ],
+    tooltip: { trigger: 'axis', backgroundColor: theme.panel, borderColor: theme.lineStrong, textStyle: { color: theme.text, fontSize: 11 } },
     xAxis: {
       type: 'category',
       data: props.history.map(item => new Date(item.capturedAt * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })),
-      axisLabel: { color: '#78958b', fontSize: 9, hideOverlap: true },
-      axisLine: { lineStyle: { color: '#223832' } },
+      axisLabel: { color: theme.muted, fontSize: 9, hideOverlap: true },
+      axisLine: { lineStyle: { color: theme.lineStrong } },
     },
     yAxis: [
-      { type: 'value', axisLabel: { color: '#78958b', fontSize: 9 }, splitLine: { lineStyle: { color: '#182a25' } } },
-      { type: 'value', min: 0, max: 100, axisLabel: { color: '#78958b', fontSize: 9, formatter: '{value}%' }, splitLine: { show: false } },
+      { type: 'value', axisLabel: { color: theme.muted, fontSize: 9 }, splitLine: { lineStyle: { color: theme.line } } },
+      { type: 'value', min: 0, max: 100, axisLabel: { color: theme.muted, fontSize: 9, formatter: '{value}%' }, splitLine: { show: false } },
     ],
     series: [
-      { name: '电价', type: 'line', smooth: true, data: props.history.map(item => item.currentPrice || null), symbolSize: 5, lineStyle: { color: '#f0b43d', width: 2 }, itemStyle: { color: '#f0b43d' } },
-      { name: '空闲率', type: 'line', yAxisIndex: 1, smooth: true, data: props.history.map(item => item.pileIdle + item.pileBusy > 0 ? Math.round(item.pileIdle * 100 / (item.pileIdle + item.pileBusy)) : null), symbolSize: 4, lineStyle: { color: '#31d17d', width: 2 }, itemStyle: { color: '#31d17d' } },
+      { name: '电价', type: 'line', smooth: true, data: props.history.map(item => item.currentPrice || null), symbolSize: 5, lineStyle: { color: theme.primary, width: 2 }, itemStyle: { color: theme.primary } },
+      { name: '空闲率', type: 'line', yAxisIndex: 1, smooth: true, data: props.history.map(item => item.pileIdle + item.pileBusy > 0 ? Math.round(item.pileIdle * 100 / (item.pileIdle + item.pileBusy)) : null), symbolSize: 4, lineStyle: { color: theme.green, width: 2 }, itemStyle: { color: theme.green } },
     ],
   }, true)
 }
@@ -185,7 +216,7 @@ function pileGroup(pile: PileDetail) {
 
 <template>
   <aside class="detail-panel">
-    <button v-if="detail" class="detail-close icon-button" title="关闭详情" @click="emit('close')"><X :size="16" /></button>
+    <button v-if="detail || loading" class="detail-close icon-button" title="关闭详情" @click="emit('close')"><X :size="16" /></button>
 
     <div v-if="!detail && !loading" class="detail-empty">
       <BatteryCharging :size="34" />

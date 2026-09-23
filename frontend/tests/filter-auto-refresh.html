@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>筛选自动刷新回归测试</title>
+  <style>
+    html, body { height: auto !important; min-width: 0 !important; overflow: auto !important; }
+    body { padding: 16px; }
+    h1 { font-size: 18px; }
+    #results { font: 13px/1.6 monospace; white-space: pre-wrap; }
+    #fixture { width: 248px; }
+  </style>
+</head>
+<body>
+  <h1>筛选自动刷新回归测试</h1>
+  <pre id="results" role="status">正在运行…</pre>
+  <div id="fixture"></div>
+  <script type="module">
+    // Start Vite and open /tests/filter-auto-refresh.html. No backend required.
+    import { createApp, h, nextTick, reactive } from 'vue'
+    import FilterBar from '/src/components/FilterBar.vue'
+    import '/src/styles.css'
+
+    const fixture = document.querySelector('#fixture')
+    const output = document.querySelector('#results')
+    const defaults = { keyword: '', city: '', operator: '', tou: '', priceBand: '', piles: '', availability: '', sort: 'idleDesc', page: 1, pageSize: 25 }
+    const filters = reactive({ ...defaults, city: '郑州市', page: 3 })
+    const meta = { cities: [{ name: '郑州市', count: 206 }, { name: '洛阳市', count: 100 }], operators: [{ name: '测试运营商', count: 10 }] }
+    const updates = []
+    let resetCount = 0
+    const app = createApp({
+      render: () => h(FilterBar, {
+        filters, meta, total: 206,
+        onUpdate: next => { updates.push({ ...next }); Object.assign(filters, next) },
+        onReset: () => { resetCount++; Object.assign(filters, defaults) },
+      }),
+    })
+    app.mount(fixture)
+    const results = []
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+    const tick = async () => { await nextTick(); await new Promise(requestAnimationFrame) }
+    function check(condition, message) { if (!condition) throw new Error(message) }
+    function pass(message) { results.push('PASS ' + message) }
+    function input(value) {
+      const el = fixture.querySelector('input')
+      el.value = value
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      return el
+    }
+    function groupButton(index, label) {
+      return [...fixture.querySelectorAll('.filter-group')[index].querySelectorAll('button')].find(el => el.textContent.trim() === label)
+    }
+
+    try {
+      await tick()
+      check(!fixture.textContent.includes('应用筛选') && !fixture.querySelector('.apply-button'), '仍有应用筛选按钮')
+      check(fixture.textContent.includes('筛选后自动更新'), '缺少即时筛选提示')
+      check(updates.length === 0, '挂载时不应重复发起请求')
+      pass('移除应用按钮，初次挂载不重复请求')
+      for (const [index, key, value] of [[0, 'city', '洛阳市'], [1, 'operator', '测试运营商'], [2, 'sort', 'priceAsc']]) {
+        const before = updates.length
+        const select = fixture.querySelectorAll('select')[index]
+        select.value = value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+        await tick()
+        check(updates.length === before + 1 && updates.at(-1)[key] === value && updates.at(-1).page === 1, key + '未立即更新或未回到第一页')
+        pass(key + ' 选择后立即更新并重置页码')
+      }
+      for (const [index, key, options] of [
+        [0, 'priceBand', [['低价','cheap'], ['中位','mid'], ['高价','expensive'], ['全部','']]],
+        [1, 'tou', [['有多时段','has'], ['全天统一价','flat'], ['无分时数据','none'], ['全部站点','']]],
+        [2, 'piles', [['有','with'], ['无','without'], ['全部','']]],
+      ]) {
+        for (const [label, value] of options) {
+          const before = updates.length
+          groupButton(index, label).click()
+          await tick()
+          check(updates.length === before + 1 && updates.at(-1)[key] === value, key + '/' + label + '未立即更新')
+          check(groupButton(index, label).classList.contains('active'), key + '/' + label + '未选中')
+          pass(key + '/' + label + ' 点击即更新')
+        }
+      }
+      let before = updates.length
+      filters.city = '郑州市'
+      filters.page = 2
+      await tick()
+      check(updates.length === before && fixture.querySelector('select').value === '郑州市', '外部同步造成循环请求')
+      pass('外部筛选同步不产生循环请求')
+
+      before = updates.length
+      input('郑'); await wait(50)
+      input('郑州'); await wait(50)
+      input('郑州充电站')
+      check(updates.length === before, '搜索没有防抖')
+      await wait(360); await tick()
+      check(updates.length === before + 1 && updates.at(-1).keyword === '郑州充电站' && updates.at(-1).page === 1, '快速输入未合并为最后一次搜索')
+      pass('连续输入合并为一次搜索，使用最新关键词')
+
+      before = updates.length
+      const search = input('立即搜索')
+      search.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }))
+      await tick()
+      check(updates.length === before + 1 && updates.at(-1).keyword === '立即搜索', '回车未立即搜索')
+      await wait(360)
+      check(updates.length === before + 1, '回车后触发了重复搜索')
+      pass('回车立即搜索并取消延迟请求')
+
+      before = updates.length
+      search.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      input('zhongwen')
+      search.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', isComposing: true, bubbles: true }))
+      await wait(360)
+      check(updates.length === before, '中文输入法组词时触发了搜索')
+      search.value = '中文充电站'
+      search.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+      await wait(360); await tick()
+      check(updates.length === before + 1 && updates.at(-1).keyword === '中文充电站', '中文确认后未搜索最终文字')
+      pass('中文组词期间不搜索，确认后只搜索完整文字')
+
+      before = updates.length
+      input('筛选联动')
+      groupButton(0, '低价').click()
+      await tick()
+      check(updates.length === before + 1 && updates.at(-1).keyword === '筛选联动' && updates.at(-1).priceBand === 'cheap', '点击筛选丢失了待搜索关键词')
+      await wait(360)
+      check(updates.length === before + 1, '组合筛选触发重复请求')
+      pass('输入后立即点选筛选，合并成一次请求')
+
+      filters.availability = 'idle'
+      await tick()
+      before = updates.length
+      fixture.querySelector('.active-availability-filter').click()
+      await tick()
+      check(updates.length === before + 1 && updates.at(-1).availability === '', '清除状态未立即更新')
+      pass('清除状态筛选立即更新')
+
+      before = updates.length
+      input('重置前的搜索')
+      fixture.querySelector('[title="重置筛选"]').click()
+      await wait(360); await tick()
+      check(resetCount === 1 && updates.length === before && fixture.querySelector('input').value === '', '重置后旧搜索再次生效')
+      pass('重置清除待执行搜索，旧条件不会恢复')
+
+      before = updates.length
+      input('卸载前的搜索')
+      app.unmount()
+      await wait(360)
+      check(updates.length === before, '卸载后仍触发搜索')
+      pass('卸载时清理搜索定时器')
+      output.textContent = `全部 ${results.length} 项测试通过\n${results.join('\n')}`
+      output.dataset.result = 'passed'
+    } catch (error) {
+      output.textContent = `${results.join('\n')}\nFAIL ${error.message}`
+      output.dataset.result = 'failed'
+      console.error(error)
+    }
+  </script>
+</body>
+</html>

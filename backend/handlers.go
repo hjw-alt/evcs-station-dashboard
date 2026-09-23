@@ -244,15 +244,16 @@ func (a *API) mapStations(w http.ResponseWriter, r *http.Request) {
 }
 
 type stationFilters struct {
-	Keyword   string
-	City      string
-	Operator  string
-	TOU       string
-	PriceBand string
-	Piles     string
-	Sort      string
-	Page      int
-	PageSize  int
+	Availability string
+	Keyword      string
+	City         string
+	Operator     string
+	TOU          string
+	PriceBand    string
+	Piles        string
+	Sort         string
+	Page         int
+	PageSize     int
 }
 
 func parseStationFilters(r *http.Request) stationFilters {
@@ -268,15 +269,16 @@ func parseStationFilters(r *http.Request) stationFilters {
 		pageSize = 3000
 	}
 	return stationFilters{
-		Keyword:   strings.TrimSpace(r.URL.Query().Get("keyword")),
-		City:      strings.TrimSpace(r.URL.Query().Get("city")),
-		Operator:  strings.TrimSpace(r.URL.Query().Get("operator")),
-		TOU:       strings.TrimSpace(r.URL.Query().Get("tou")),
-		PriceBand: strings.TrimSpace(r.URL.Query().Get("priceBand")),
-		Piles:     strings.TrimSpace(r.URL.Query().Get("piles")),
-		Sort:      strings.TrimSpace(r.URL.Query().Get("sort")),
-		Page:      page,
-		PageSize:  pageSize,
+		Availability: validAvailability(strings.TrimSpace(r.URL.Query().Get("availability"))),
+		Keyword:      strings.TrimSpace(r.URL.Query().Get("keyword")),
+		City:         strings.TrimSpace(r.URL.Query().Get("city")),
+		Operator:     strings.TrimSpace(r.URL.Query().Get("operator")),
+		TOU:          strings.TrimSpace(r.URL.Query().Get("tou")),
+		PriceBand:    strings.TrimSpace(r.URL.Query().Get("priceBand")),
+		Piles:        strings.TrimSpace(r.URL.Query().Get("piles")),
+		Sort:         strings.TrimSpace(r.URL.Query().Get("sort")),
+		Page:         page,
+		PageSize:     pageSize,
 	}
 }
 
@@ -345,12 +347,6 @@ func (a *API) stations(w http.ResponseWriter, r *http.Request) {
 			  FROM site_exploration_charging_station_result
 			 WHERE NULLIF(current_price,'') REGEXP '^[0-9]+([.][0-9]+)?$'
 		)`
-	countSQL := base + " SELECT COUNT(*) FROM site_exploration_charging_station_result r LEFT JOIN priced p ON p.source_key=r.source_key WHERE " + where
-	var total int
-	if err := a.store.db.QueryRowContext(r.Context(), countSQL, args...).Scan(&total); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
 	listSQL := base + `
 		SELECT r.source_key, r.source_station_id, r.matched_station_name, r.requested_name,
 		       r.city, r.district, r.operator, r.source_address, r.collected_address,
@@ -363,10 +359,10 @@ func (a *API) stations(w http.ResponseWriter, r *http.Request) {
 		  FROM site_exploration_charging_station_result r
 		  LEFT JOIN priced p ON p.source_key=r.source_key
 		 WHERE ` + where + `
-		 ORDER BY ` + stationOrder(filters.Sort) + `
-		 LIMIT ? OFFSET ?`
-	listArgs := append(append([]interface{}{}, args...), filters.PageSize, (filters.Page-1)*filters.PageSize)
-	rows, err := a.store.db.QueryContext(r.Context(), listSQL, listArgs...)
+		 ORDER BY ` + stationOrder(filters.Sort)
+	// The sidebar summarizes the entire filtered set, not just the visible page.
+	// Read once so cards, counts and recommendations share the same snapshot.
+	rows, err := a.store.db.QueryContext(r.Context(), listSQL, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -385,7 +381,7 @@ func (a *API) stations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, StationResponse{Items: items, Total: total, Page: filters.Page, PageSize: filters.PageSize})
+	writeJSON(w, http.StatusOK, stationResponse(items, filters, time.Now().Unix()))
 }
 
 type rowScanner interface {
