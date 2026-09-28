@@ -105,11 +105,13 @@ type HistoryPoint struct {
 }
 
 type StationResponse struct {
-	Summary  StationSummary `json:"summary"`
-	Items    []Station      `json:"items"`
-	Total    int            `json:"total"`
-	Page     int            `json:"page"`
-	PageSize int            `json:"pageSize"`
+	Facets      StationFacets  `json:"facets"`
+	MatchedKeys []string       `json:"matchedKeys"`
+	Summary     StationSummary `json:"summary"`
+	Items       []Station      `json:"items"`
+	Total       int            `json:"total"`
+	Page        int            `json:"page"`
+	PageSize    int            `json:"pageSize"`
 }
 
 type MapStation struct {

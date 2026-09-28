@@ -125,7 +125,7 @@ function captureTitle(station: Station) {
         <div class="insights-quality"><span>缺少电价 <b>{{ summary.freshness.missingPrice.toLocaleString() }}</b></span><span>无电桩数据 <b>{{ summary.freshness.missingPiles.toLocaleString() }}</b></span></div>
         <p class="insights-section-note">页面刷新不代表重新采集；缺失项可能重叠。</p>
       </section>
-      <footer class="insights-footer"><Info :size="12" />点击站点查看详情，关闭后返回此概览</footer>
+      <footer class="insights-footer"><Info :size="12" />点击站点，在弹窗中查看详情</footer>
     </template>
   </aside>
 </template>

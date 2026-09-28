@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>站点卡片加载布局回归测试</title>
+  <title>站点列表与卡片加载布局回归测试</title>
   <style>
     html, body { height: auto !important; min-width: 0 !important; overflow: auto !important; }
     body { padding: 16px; }
@@ -15,10 +15,11 @@
   </style>
 </head>
 <body>
-  <h1>站点卡片加载布局回归测试</h1>
+  <h1>站点列表与卡片加载布局回归测试</h1>
   <pre id="results" role="status">正在运行…</pre>
   <div id="controls">
     <button id="loading">预览骨架</button>
+    <button id="list-loading">预览列表骨架</button>
     <button id="loaded">预览卡片</button>
     <button id="empty">预览空结果</button>
   </div>
@@ -45,6 +46,8 @@
     const state = reactive({
       items: [], loading: true, total: 0, page: 1, pageSize: 3000,
       selectedKey: '', viewMode: 'card', selectedCity: '',
+      mapItems: [], mapLoading: false, mapUpdatedAt: 0, mapTotal: 0, overview: null, summary: null,
+      filters: {keyword: '', city: '', operator: '', availability: '', priceBand: '', tou: '', piles: '', sort: 'idleDesc', page: 1, pageSize: 25},
     })
     createApp({
       render: () => h(StationTable, {
@@ -198,6 +201,43 @@
         assert(JSON.stringify(cardNames()) === JSON.stringify(alternativeOrder.map(station => station.matchedName)), '手动选择其他排序也应保留接口顺序')
         results.push('PASS ' + (selectedCity || '全部城市') + '：保留空闲率排序、刷新稳定、支持手动切换排序')
       }
+      function listCoverage() {
+        const viewport = fixture.querySelector('.table-scroll')
+        const rows = [...fixture.querySelectorAll('.skeleton-row')]
+        const rect = viewport.getBoundingClientRect()
+        const header = viewport.querySelector('thead').getBoundingClientRect()
+        const last = rows.at(-1).getBoundingClientRect()
+        const rowHeight = rows[0].getBoundingClientRect().height
+        assert(viewport.getAttribute('aria-busy') === 'true', '列表缺少加载状态')
+        assert(rows.length === Math.ceil((viewport.clientHeight - header.height) / rowHeight), '列表骨架数量没有按可见区域计算')
+        assert(last.bottom >= rect.top + viewport.clientHeight - 1, '列表骨架底部留白')
+        assert(last.top < rect.top + viewport.clientHeight + 1, '多渲染了不必要的整行骨架')
+        assert(rows.every(row => row.cells.length === 7), '列表骨架没有对齐七个数据列')
+        assert(viewport.scrollWidth <= viewport.clientWidth, '列表骨架横向溢出')
+        assert([...fixture.querySelectorAll('.pagination button')].every(button => button.disabled), '加载期间应禁用翻页')
+        return rows.length
+      }
+      for (const [width, height] of [[960, 440], [1280, 720], [1920, 1080], [2560, 1600], [960, 460]]) {
+        fixture.style.width = `${width}px`
+        fixture.style.height = `${height}px`
+        await render({viewMode: 'list', loading: true, page: 2, pageSize: 25, total: 2523})
+        const count = listCoverage()
+        if (height === 1600) assert(count > 25, '骨架数量不应被每页25条限制')
+        results.push(`PASS ${width}×${height} 列表骨架 ${count} 行，完整铺满且随容器缩放`)
+      }
+      await render({viewMode: 'list', loading: false, items: stations, total: stations.length})
+      assert(!fixture.querySelector('.skeleton-row'), '数据返回后骨架未移除')
+      fixture.querySelector('.table-scroll').scrollTop = 500
+      await render({loading: true})
+      assert(fixture.querySelector('.table-scroll').scrollTop === 0, '刷新后骨架未回到顶部')
+      listCoverage()
+      await render({viewMode: 'card', loading: true})
+      skeletonCoverage()
+      await render({viewMode: 'list', loading: true})
+      listCoverage()
+      await render({loading: false, items: [], total: 0})
+      assert(fixture.querySelector('.empty-state') && !fixture.querySelector('.skeleton-row'), '列表空结果未正常呈现')
+      results.push('PASS 列表刷新、滚动、Tab切换、数据返回和空结果不残留骨架')
       // Theme regressions exercise the production component and CSS, not replica markup.
       const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number)
       const luminance = value => rgb(value).map(channel => {
@@ -255,8 +295,9 @@
     fixture.style.width = '1280px'
     fixture.style.height = '800px'
     await render({ viewMode: 'card', selectedCity: '', loading: true, items: stations, total: stations.length })
-    document.querySelector('#loading').onclick = () => render({ loading: true })
-    document.querySelector('#loaded').onclick = () => render({ loading: false, items: stations, total: stations.length })
+    document.querySelector('#loading').onclick = () => render({ viewMode: 'card', loading: true })
+    document.querySelector('#list-loading').onclick = () => render({ viewMode: 'list', loading: true, pageSize: 25, total: 2523 })
+    document.querySelector('#loaded').onclick = () => render({ viewMode: 'card', loading: false, items: stations, total: stations.length })
     document.querySelector('#empty').onclick = () => render({ loading: false, items: [], total: 0 })
   </script>
 </body>

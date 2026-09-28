@@ -22,7 +22,8 @@ func main() {
 	}
 	defer store.Close()
 
-	api := NewAPI(store)
+	api := NewAPI(store, config)
+	StartAIReportScheduler(store.db, config.AIReport)
 	handler := withCORS(api.Routes(), config.AllowedOrigin)
 	server := &http.Server{
 		Addr:              config.Addr,

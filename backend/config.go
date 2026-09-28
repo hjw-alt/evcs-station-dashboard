@@ -14,6 +14,8 @@ type Config struct {
 	Addr          string
 	DSN           string
 	AllowedOrigin string
+	AdminKey      string
+	AIReport      AIReportConfig
 }
 
 func loadConfig() (Config, error) {
@@ -27,6 +29,8 @@ func loadConfig() (Config, error) {
 		Addr:          envOrDefault("DASHBOARD_ADDR", "127.0.0.1:8088"),
 		DSN:           dsn,
 		AllowedOrigin: envOrDefault("DASHBOARD_ALLOWED_ORIGIN", "*"),
+		AdminKey:      envOrDefault("DASHBOARD_ADMIN_KEY", "dev-admin-key"),
+		AIReport:      loadAIReportConfig(),
 	}, nil
 }
 

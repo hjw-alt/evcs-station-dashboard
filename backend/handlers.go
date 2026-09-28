@@ -13,10 +13,11 @@ import (
 
 type API struct {
 	store *Store
+	cfg   Config
 }
 
-func NewAPI(store *Store) *API {
-	return &API{store: store}
+func NewAPI(store *Store, cfg Config) *API {
+	return &API{store: store, cfg: cfg}
 }
 
 func (a *API) Routes() http.Handler {
@@ -28,6 +29,8 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("/api/station", a.stationDetail)
 	mux.HandleFunc("/api/station/history", a.stationHistory)
 	mux.HandleFunc("/api/meta", a.meta)
+	mux.HandleFunc("/api/ai-report/daily", a.dailyAIReport)
+	mux.HandleFunc("/api/ai-report/generate", a.generateDailyAIReport)
 	return mux
 }
 
@@ -339,7 +342,9 @@ func stationOrder(sortBy string) string {
 
 func (a *API) stations(w http.ResponseWriter, r *http.Request) {
 	filters := parseStationFilters(r)
-	where, args := stationWhere(filters)
+	// Load the keyword-scoped snapshot once. Dimension filtering and facet counts
+	// share this snapshot before pagination (including map matching keys).
+	where, args := stationWhere(stationFilters{Keyword: filters.Keyword})
 	base := `
 		WITH priced AS (
 			SELECT source_key,
@@ -360,7 +365,7 @@ func (a *API) stations(w http.ResponseWriter, r *http.Request) {
 		  LEFT JOIN priced p ON p.source_key=r.source_key
 		 WHERE ` + where + `
 		 ORDER BY ` + stationOrder(filters.Sort)
-	// The sidebar summarizes the entire filtered set, not just the visible page.
+	// Summaries and facet counts cover all matching stations, not just the visible page.
 	// Read once so cards, counts and recommendations share the same snapshot.
 	rows, err := a.store.db.QueryContext(r.Context(), listSQL, args...)
 	if err != nil {

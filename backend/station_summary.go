@@ -105,19 +105,19 @@ func summarizeStations(items []Station, now int64) StationSummary {
 }
 
 func stationResponse(items []Station, filters stationFilters, now int64) StationResponse {
-	matching := make([]Station, 0, len(items))
-	availability := validAvailability(filters.Availability)
-	for _, station := range items {
-		if availability == "" || stationAvailability(station) == availability {
-			matching = append(matching, station)
-		}
+	matching, facets := filterAndFacetStations(items, filters)
+	matchedKeys := make([]string, 0, len(matching))
+	for _, station := range matching {
+		matchedKeys = append(matchedKeys, station.SourceKey)
 	}
 	summary := summarizeStations(matching, now)
 	if filters.Sort == "idleDesc" {
 		matching = idleOrderedPage(matching, filters.Page, filters.PageSize)
+	} else if filters.Sort == "idleAsc" {
+		matching = idleAscendingPage(matching, filters.Page, filters.PageSize)
 	} else {
 		// Other sort orders are already applied by the SQL query.
 		matching = stationPage(matching, filters.Page, filters.PageSize)
 	}
-	return StationResponse{Items: matching, Total: summary.Total, Page: filters.Page, PageSize: filters.PageSize, Summary: summary}
+	return StationResponse{Items: matching, Total: summary.Total, Page: filters.Page, PageSize: filters.PageSize, Summary: summary, Facets: facets, MatchedKeys: matchedKeys}
 }

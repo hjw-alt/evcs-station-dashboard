@@ -137,6 +137,18 @@ export interface Meta {
 }
 
 export type Availability = 'idle' | 'moderate' | 'full' | 'unknown'
+export interface DailyAIReport {
+  enabled?: boolean
+  reportDate: string
+  status: 'COMPLETED' | 'RUNNING' | 'FAILED' | 'MISSING'
+  content?: string
+  metrics?: Record<string, unknown>
+  model?: string
+  promptVersion?: string
+  error?: string
+  generatedAt?: string
+  updatedAt?: string
+}
 
 export interface StationSummary {
   total: number
@@ -153,7 +165,18 @@ export interface StationSummary {
   freshnessWindowSeconds: number
 }
 
+export type StationFacetKey = 'city' | 'operator' | 'availability' | 'priceBand' | 'tou' | 'piles'
+
+export interface StationFacetGroup {
+  total: number
+  counts: Record<string, number>
+}
+
+export type StationFacets = Record<StationFacetKey, StationFacetGroup>
+
 export interface StationResponse {
+  facets: StationFacets
+  matchedKeys: string[]
   summary: StationSummary
   items: Station[]
   total: number

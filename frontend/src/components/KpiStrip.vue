@@ -20,7 +20,7 @@ function share(value: number | undefined, total: number | undefined) {
 </script>
 
 <template>
-  <section class="kpi-strip">
+  <section class="kpi-strip" aria-label="全局运行指标">
     <article class="kpi-unit">
       <DatabaseZap :size="16" />
       <span>站点总数</span>
@@ -55,7 +55,7 @@ function share(value: number | undefined, total: number | undefined) {
       <TimerReset :size="16" />
       <span>最近入库</span>
       <strong class="time-value">{{ fmtTime(overview?.updatedAt) }}</strong>
-      <small>自动刷新 60 秒</small>
+      <small>自动刷新 5 分钟</small>
     </article>
   </section>
 </template>

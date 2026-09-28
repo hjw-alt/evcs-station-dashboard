@@ -216,9 +216,15 @@ function pileGroup(pile: PileDetail) {
 
 <template>
   <aside class="detail-panel">
-    <button v-if="detail || loading" class="detail-close icon-button" title="关闭详情" @click="emit('close')"><X :size="16" /></button>
+    <button v-if="detail || loading" class="detail-close icon-button" title="关闭详情" aria-label="关闭详情" @click="emit('close')"><X :size="16" /></button>
 
-    <div v-if="!detail && !loading" class="detail-empty">
+    <div v-if="loading" class="detail-empty" role="status" aria-live="polite">
+      <BatteryCharging :size="34" />
+      <strong>正在加载站点详情…</strong>
+      <span>正在获取分时电价、电桩状态和历史快照</span>
+    </div>
+
+    <div v-else-if="!detail" class="detail-empty">
       <BatteryCharging :size="34" />
       <strong>选择站点查看详情</strong>
       <span>电价阶梯、逐桩状态和历史快照会显示在这里</span>

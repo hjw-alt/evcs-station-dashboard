@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
 import { ChevronLeft, ChevronRight, MapPin, Zap } from 'lucide-vue-next'
-import type { Station } from '../types'
+import HenanMap from './HenanMap.vue'
+import ReportPanel from './ReportPanel.vue'
+import type { MapStation, Overview, Station, StationFilters, StationSummary } from '../types'
 
 const props = defineProps<{
   items: Station[]
@@ -10,14 +12,22 @@ const props = defineProps<{
   page: number
   pageSize: number
   selectedKey: string
-  viewMode: 'list' | 'card'
+  viewMode: 'list' | 'card' | 'map' | 'report'
   selectedCity: string
+  mapItems: MapStation[]
+  mapLoading: boolean
+  mapUpdatedAt: number
+  mapTotal: number
+  overview: Overview | null
+  summary: StationSummary | null
+  filters: StationFilters
 }>()
 
 const emit = defineEmits<{
   select: [station: Station]
   page: [page: number]
-  'update:viewMode': [mode: 'list' | 'card']
+  'update:viewMode': [mode: 'list' | 'card' | 'map' | 'report']
+  'select-map': [sourceKey: string]
 }>()
 
 const cardGrids = ref<HTMLElement[]>([])
@@ -45,6 +55,32 @@ watchEffect((onCleanup) => {
   const observer = new ResizeObserver(updateSkeletonCount)
   observer.observe(grid)
   updateSkeletonCount()
+  onCleanup(() => observer.disconnect())
+}, { flush: 'post' })
+
+const listViewport = ref<HTMLElement | null>(null)
+const listSkeletonCount = ref(1)
+
+watchEffect(onCleanup => {
+  if (!props.loading || props.viewMode !== 'list') return
+  const viewport = listViewport.value
+  const header = viewport?.querySelector('thead')
+  const row = viewport?.querySelector('.skeleton-row')
+  if (!viewport || !header || !row) return
+
+  const fillListSkeleton = () => {
+    const rowHeight = row.getBoundingClientRect().height
+    const availableHeight = viewport.clientHeight - header.getBoundingClientRect().height
+    if (!rowHeight || availableHeight <= 0) return
+    // Round up to cover the last partial row; do not cap this to pageSize or total.
+    listSkeletonCount.value = Math.max(1, Math.ceil(availableHeight / rowHeight))
+  }
+  viewport.scrollTop = 0
+  const observer = new ResizeObserver(fillListSkeleton)
+  observer.observe(viewport)
+  observer.observe(header)
+  observer.observe(row)
+  fillListSkeleton()
   onCleanup(() => observer.disconnect())
 }, { flush: 'post' })
 
@@ -92,8 +128,10 @@ const groupedCards = computed(() => {
   <section class="table-panel">
     <div class="table-toolbar">
       <div>
-        <strong>站点实时总览</strong>
-        <span>{{ total }} 个站点 · 相对电价色阶 · 空闲率独立进度</span>
+        <strong>{{ viewMode === 'map' ? '河南地图总览' : viewMode === 'report' ? 'AI 运行分析总览' : '站点实时总览' }}</strong>
+        <span v-if="viewMode === 'map'">{{ mapTotal }} 个站点 · 点击站点查看详情弹窗</span>
+        <span v-else-if="viewMode === 'report'">静态预览 · 空闲率与近期站点分析</span>
+        <span v-else>{{ total }} 个站点 · 相对电价色阶 · 空闲率独立进度</span>
       </div>
       <div class="toolbar-right">
         <nav v-if="viewMode === 'card'" class="legend">
@@ -102,7 +140,7 @@ const groupedCards = computed(() => {
           <span><i class="dot status-full"></i>满载</span>
           <span><i class="dot status-unknown"></i>无数据</span>
         </nav>
-        <div v-else class="legend">
+        <div v-else-if="viewMode === 'list'" class="legend">
           <span><i class="dot cheap"></i>低价</span>
           <span><i class="dot mid"></i>中位</span>
           <span><i class="dot expensive"></i>高价</span>
@@ -121,11 +159,40 @@ const groupedCards = computed(() => {
             :class="{ active: viewMode === 'card' }"
             @click="emit('update:viewMode', 'card')"
           >卡片</button>
+          <button
+            role="tab"
+            :aria-selected="viewMode === 'map'"
+            :class="{ active: viewMode === 'map' }"
+            @click="emit('update:viewMode', 'map')"
+          >地图</button>
+          <button
+            role="tab"
+            :aria-selected="viewMode === 'report'"
+            :class="{ active: viewMode === 'report' }"
+            @click="emit('update:viewMode', 'report')"
+          >报告</button>
         </div>
       </div>
     </div>
 
-    <div v-if="viewMode === 'list'" class="table-scroll">
+    <ReportPanel
+      v-if="viewMode === 'report'"
+      :overview="overview"
+      :summary="summary"
+      :filters="filters"
+      :loading="loading"
+    />
+
+    <div v-else-if="viewMode === 'map'" class="map-view">
+      <HenanMap
+        :items="mapItems"
+        :loading="mapLoading"
+        :updated-at="mapUpdatedAt"
+        @select="emit('select-map', $event)"
+      />
+    </div>
+
+    <div v-else-if="viewMode === 'list'" ref="listViewport" class="table-scroll" :aria-busy="loading">
       <table class="station-table">
         <thead>
           <tr>
@@ -139,9 +206,14 @@ const groupedCards = computed(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading" v-for="index in 8" :key="index" class="skeleton-row">
-            <td colspan="7"><span></span></td>
-          </tr>
+          <template v-if="loading">
+            <tr v-for="index in listSkeletonCount" :key="index" class="skeleton-row" aria-hidden="true">
+              <td v-for="column in 7" :key="column">
+                <span class="list-skeleton-line"></span>
+                <span v-if="[1, 2, 3, 6].includes(column)" class="list-skeleton-line short"></span>
+              </td>
+            </tr>
+          </template>
           <tr
             v-else
             v-for="station in items"
@@ -285,13 +357,14 @@ const groupedCards = computed(() => {
     </div>
 
     <div v-if="viewMode === 'list'" class="pagination">
-      <span>第 {{ page }} / {{ pages() }} 页 · 每页 {{ pageSize }} 站</span>
+      <span v-if="loading" role="status">正在加载站点…</span>
+      <span v-else>第 {{ page }} / {{ pages() }} 页 · 每页 {{ pageSize }} 站</span>
       <div>
-        <button class="icon-button" :disabled="page <= 1" @click="emit('page', page - 1)"><ChevronLeft :size="15" /></button>
-        <button class="icon-button" :disabled="page >= pages()" @click="emit('page', page + 1)"><ChevronRight :size="15" /></button>
+        <button class="icon-button" :disabled="loading || page <= 1" @click="emit('page', page - 1)"><ChevronLeft :size="15" /></button>
+        <button class="icon-button" :disabled="loading || page >= pages()" @click="emit('page', page + 1)"><ChevronRight :size="15" /></button>
       </div>
     </div>
-    <div v-else class="pagination">
+    <div v-else-if="viewMode === 'card'" class="pagination">
       <span v-if="loading" role="status">正在加载站点…</span>
       <span v-else>已加载全部 {{ total }} 个站点 · 按当前排序展示</span>
     </div>

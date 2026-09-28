@@ -1,4 +1,5 @@
 import type {
+  DailyAIReport,
   HistoryPoint,
   MapStationResponse,
   Meta,
@@ -27,6 +28,10 @@ export function fetchStations(filters: StationFilters) {
     if (value !== '' && value != null) params.set(key, String(value))
   })
   return request<StationResponse>(`/api/stations?${params.toString()}`)
+}
+
+export function fetchDailyAIReport() {
+  return request<DailyAIReport>('/api/ai-report/daily')
 }
 
 export function fetchMeta() {

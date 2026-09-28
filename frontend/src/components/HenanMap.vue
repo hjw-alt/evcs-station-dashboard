@@ -1,54 +1,30 @@
 <script setup lang="ts">
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { MapPinned, TimerReset } from 'lucide-vue-next'
 import { readChartTheme } from '../theme'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import henanCountiesGeoJSON from '../assets/henan-counties.json'
+import type { MapStation } from '../types'
 import * as echarts from 'echarts/core'
 import { MapChart, ScatterChart } from 'echarts/charts'
 import { GeoComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { CircleDollarSign, MapPinned, TimerReset, X } from 'lucide-vue-next'
-import henanCountiesGeoJSON from '../assets/henan-counties.json'
-import type { HistoryPoint, MapStation, StationDetail } from '../types'
-import StationDetailPanel from './StationDetail.vue'
 
 echarts.use([MapChart, ScatterChart, GeoComponent, TooltipComponent, CanvasRenderer])
 echarts.registerMap('henan-counties', henanCountiesGeoJSON as never)
 
 const props = defineProps<{
-  visible: boolean
   items: MapStation[]
   loading: boolean
   updatedAt: number
-  total: number
-  detail: StationDetail | null
-  history: HistoryPoint[]
-  detailLoading: boolean
 }>()
 
 const emit = defineEmits<{
-  close: []
   select: [sourceKey: string]
-  clearDetail: []
 }>()
 
 const mapEl = ref<HTMLDivElement | null>(null)
 let chart: echarts.EChartsType | null = null
 let resizeObserver: ResizeObserver | null = null
-
-const coordinateCount = computed(() => props.items.length)
-const missingCoordinates = computed(() => Math.max(0, props.total - props.items.length))
-const pricedCount = computed(() => props.items.filter(item => item.currentPrice > 0).length)
-const availableCount = computed(() => props.items.filter(item => item.pileIdle > 0).length)
-const averagePrice = computed(() => {
-  const priced = props.items.filter(item => item.currentPrice > 0)
-  if (!priced.length) return 0
-  return priced.reduce((sum, item) => sum + item.currentPrice, 0) / priced.length
-})
-const topCheap = computed(() =>
-  [...props.items]
-    .filter(item => item.currentPrice > 0)
-    .sort((a, b) => a.currentPrice - b.currentPrice)
-    .slice(0, 20),
-)
 
 function escapeHtml(value: string) {
   return value
@@ -68,10 +44,6 @@ function fmtTime(epoch: number) {
     minute: '2-digit',
     hour12: false,
   })
-}
-
-function fmtPrice(value: number) {
-  return value > 0 ? `${value.toFixed(2)} 元/kWh` : '暂无电价'
 }
 
 function buildOption() {
@@ -116,7 +88,7 @@ function buildOption() {
       borderWidth: 1,
       padding: 10,
       textStyle: { color: theme.text, fontSize: 11 },
-      formatter: (params: { data?: { name?: string; currentPriceText?: string; value?: unknown[]; operator?: string } }) => {
+      formatter: (params: { data?: { name?: string; value?: unknown[]; operator?: string } }) => {
         const item = params.data
         if (!item?.value) return escapeHtml(item?.name || '充电站')
         const [, , price, idleRate, pileIdle, pileTotal, city, district, address] = item.value
@@ -178,21 +150,15 @@ function buildOption() {
 }
 
 function render() {
-  if (!props.visible || !mapEl.value) return
-  if (chart && chart.getDom() !== mapEl.value) {
-    chart.dispose()
-    chart = null
-  }
+  if (!mapEl.value) return
   chart ??= echarts.init(mapEl.value)
   chart.setOption(buildOption(), true)
   chart.resize()
   chart.off('click')
-  chart.off('georoam')
   chart.on('click', (params: unknown) => {
     const sourceKey = (params as { data?: { sourceKey?: string } | null }).data?.sourceKey
     if (sourceKey) emit('select', sourceKey)
   })
-
 }
 
 async function showMap() {
@@ -205,12 +171,10 @@ async function showMap() {
   }
 }
 
-watch(() => [props.visible, props.items.length, props.updatedAt], () => {
-  if (props.visible) void showMap()
-})
+watch(() => [props.items.length, props.updatedAt], () => void showMap())
 
 onMounted(() => {
-  if (props.visible) void showMap()
+  void showMap()
 })
 
 onBeforeUnmount(() => {
@@ -221,68 +185,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="visible" class="map-overlay" @keydown.esc="emit('close')" @click.self="emit('close')">
-      <section class="map-panel">
-        <header class="map-panel-head">
-          <div>
-            <span class="map-kicker"><MapPinned :size="12" /> HENAN · CHARGING NETWORK</span>
-            <h2>河南重卡充电站地图总览</h2>
-            <p>点颜色代表电价高低；放大地图查看区县边界，悬浮查看区县名称，点击站点查看详情。</p>
-            <div class="map-legend">
-              <span><i class="dot cheap"></i>低价</span>
-              <span><i class="dot mid"></i>中位</span>
-              <span><i class="dot expensive"></i>高价</span>
-              <span><i class="dot missing"></i>无电价</span>
-            </div>
-          </div>
-          <div class="map-head-actions">
-
-            <span class="map-updated"><TimerReset :size="12" /> 最近入库 {{ fmtTime(updatedAt) }}</span>
-            <button class="icon-button" title="关闭地图总览" @click="emit('close')"><X :size="17" /></button>
-          </div>
-        </header>
-
-        <div class="map-body">
-          <div ref="mapEl" class="henan-map"></div>
-          <div v-if="loading" class="map-loading">正在加载全省站点...</div>
-          <aside class="map-side">
-            <div class="map-stat-grid">
-              <div>
-                <span>地图覆盖</span>
-                <strong>{{ coordinateCount }}<em>/{{ total }}</em></strong>
-                <small v-if="missingCoordinates">缺坐标 {{ missingCoordinates }}</small>
-              </div>
-              <div><span>有效电价</span><strong>{{ pricedCount }}</strong></div>
-              <div><span>有空闲桩</span><strong>{{ availableCount }}</strong></div>
-              <div><span>平均电价</span><strong>{{ averagePrice.toFixed(2) }}<em>元</em></strong></div>
-            </div>
-            <div class="map-detail-wrap">
-              <StationDetailPanel
-                v-if="detail"
-                :detail="detail"
-                :history="history"
-                :loading="detailLoading"
-                @close="emit('clearDetail')"
-              />
-              <div v-else-if="detailLoading" class="map-detail-loading">正在加载站点详情...</div>
-              <div v-else class="map-list">
-                <div class="map-list-head"><CircleDollarSign :size="13" /> 低价站点 TOP {{ topCheap.length }}</div>
-                <button
-                  v-for="item in topCheap"
-                  :key="item.sourceKey"
-                  class="map-list-row"
-                  @click="emit('select', item.sourceKey)"
-                >
-                  <span>{{ item.name }}<small>{{ item.city }} {{ item.district }}</small></span>
-                  <strong>{{ fmtPrice(item.currentPrice) }}</strong>
-                </button>
-                <div v-if="!topCheap.length" class="map-list-empty">暂无有效电价数据</div>
-              </div>
-            </div>
-          </aside>
+  <section class="map-panel">
+    <div class="map-body">
+      <div ref="mapEl" class="henan-map"></div>
+      <div v-if="loading" class="map-loading">正在加载全省站点...</div>
+      <aside class="map-hint" aria-label="地图说明">
+        <h2><MapPinned :size="13" /> 河南重卡充电站地图总览</h2>
+        <p>滚轮缩放 · 拖动平移 · 点击站点查看右侧详情</p>
+        <div class="map-legend">
+          <span><i class="dot cheap"></i>低价</span>
+          <span><i class="dot mid"></i>中位</span>
+          <span><i class="dot expensive"></i>高价</span>
+          <span><i class="dot missing"></i>无电价</span>
         </div>
-      </section>
+        <span class="map-updated"><TimerReset :size="12" /> 最近入库 {{ fmtTime(updatedAt) }}</span>
+      </aside>
     </div>
-  </Teleport>
+  </section>
 </template>

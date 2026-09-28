@@ -1,21 +1,68 @@
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, watch } from 'vue'
-import { Filter, RotateCcw, Search } from 'lucide-vue-next'
-import { availabilityLabels } from '../insights'
-import type { Meta, StationFilters } from '../types'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { ChevronDown, ChevronUp, RefreshCw, RotateCcw, Search } from 'lucide-vue-next'
+import { mergeFilterOptions, readFilterOptions, saveFilterOptions } from '../filterOptions'
+import type { StationFacetKey, StationFacets, StationFilters } from '../types'
 
 const props = defineProps<{
   filters: StationFilters
-  meta: Meta | null
+  facets: StationFacets | null
+  loading: boolean
   total: number
+  refreshedAt?: number
 }>()
 
 const emit = defineEmits<{
   update: [filters: StationFilters]
   reset: []
+  refresh: []
 }>()
 
 const draft = reactive<StationFilters>({ ...props.filters })
+
+const optionNames = ref(readFilterOptions())
+watch(() => props.facets, facets => {
+  if (!facets) return
+  optionNames.value = mergeFilterOptions(optionNames.value, facets)
+  saveFilterOptions(optionNames.value)
+}, { immediate: true, deep: true })
+
+const expanded = reactive<Record<string, boolean>>({})
+const rowLimit = 8
+const fixedOptions: Partial<Record<StationFacetKey, [string, string][]>> = {
+  availability: [['idle', '空闲'], ['moderate', '适中'], ['full', '满载'], ['unknown', '无数据']],
+  priceBand: [['cheap', '低价'], ['mid', '中位价'], ['expensive', '高价'], ['missing', '无电价']],
+  tou: [['has', '多时段电价'], ['flat', '全天统一价'], ['none', '无分时数据']],
+}
+const rowLabels: [StationFacetKey, string][] = [
+  ['city', '所在城市'], ['operator', '运营商'], ['availability', '空闲状态'],
+  ['priceBand', '电价水平'], ['tou', '分时费率'],
+]
+const rows = computed(() => rowLabels.map(([key, label]) => {
+  const counts = props.facets?.[key]?.counts
+  const dynamic = key === 'city' || key === 'operator'
+  const names = dynamic ? [...optionNames.value[key]] : []
+  // A selected option remains visible even when a search has no matching stations.
+  if (!fixedOptions[key] && draft[key] && !names.includes(draft[key])) names.push(draft[key])
+  const options = (fixedOptions[key] ?? names.map(name => [name, name === '__unknown__' ? (key === 'city' ? '未标注城市' : '未知运营商') : name])).map(([value, text]) => ({
+    value: value!, label: text!, count: counts ? counts[value!] ?? 0 : null,
+  }))
+  let visible = expanded[key] ? options : options.slice(0, rowLimit)
+  const selected = options.find(option => option.value === draft[key])
+  if (selected && !visible.includes(selected)) visible = [...visible.slice(0, rowLimit - 1), selected]
+  const placeholderCount = dynamic && !optionNames.value[key].length && props.loading ? Math.max(0, rowLimit - visible.length) : 0
+  const emptyMessage = dynamic && !options.length && !props.loading
+    ? (counts ? '暂无可选项' : '选项暂不可用，请刷新重试') : ''
+  return { key, label, options: visible, optionCount: options.length, placeholderCount, emptyMessage }
+}))
+
+function countLabel(count: number | null | undefined) {
+  return props.loading || count == null ? '—' : String(count)
+}
+
+const refreshTitle = computed(() => props.refreshedAt
+  ? `刷新数据（上次刷新 ${new Date(props.refreshedAt * 1000).toLocaleTimeString('zh-CN', { hour12: false })}）`
+  : '刷新数据')
 
 const SEARCH_DEBOUNCE_MS = 300
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -33,10 +80,10 @@ watch(() => props.filters, value => {
 
 function apply() {
   cancelSearch()
-  emit('update', { ...draft, page: 1 })
+  emit('update', { ...draft, piles: '', page: 1 })
 }
 
-function choose<K extends 'priceBand' | 'tou' | 'piles' | 'availability'>(key: K, value: StationFilters[K]) {
+function choose<K extends StationFacetKey>(key: K, value: StationFilters[K]) {
   draft[key] = value
   apply()
 }
@@ -70,90 +117,44 @@ onBeforeUnmount(cancelSearch)
 </script>
 
 <template>
-  <aside class="filter-panel">
-    <div class="panel-heading">
-      <div><Filter :size="15" /> 筛选条件</div>
-      <button class="icon-button" title="重置筛选" @click="reset"><RotateCcw :size="14" /></button>
-    </div>
-
-    <label class="search-field">
-      <Search :size="15" />
-      <input
-        v-model="draft.keyword"
-        placeholder="站点、POI 或城市"
-        aria-label="搜索站点、POI 或城市"
-        @input="scheduleSearch"
-        @compositionstart="beginSearchComposition"
-        @compositionend="endSearchComposition"
-        @keyup.enter="searchOnEnter"
-      />
-    </label>
-
-    <label>
-      <span>城市</span>
-      <select v-model="draft.city" @change="apply">
-        <option value="">全部城市</option>
-        <option v-for="item in meta?.cities" :key="item.name" :value="item.name">{{ item.name }} · {{ item.count }}</option>
-      </select>
-    </label>
-
-    <label>
-      <span>运营商</span>
-      <select v-model="draft.operator" @change="apply">
-        <option value="">全部运营商</option>
-        <option v-for="item in meta?.operators" :key="item.name" :value="item.name">{{ item.name }} · {{ item.count }}</option>
-      </select>
-    </label>
-
-    <div class="filter-group">
-      <span>电价水平</span>
-      <div class="segmented">
-        <button :class="{ active: draft.priceBand === '' }" @click="choose('priceBand', '')">全部</button>
-        <button :class="{ active: draft.priceBand === 'cheap' }" @click="choose('priceBand', 'cheap')">低价</button>
-        <button :class="{ active: draft.priceBand === 'mid' }" @click="choose('priceBand', 'mid')">中位</button>
-        <button :class="{ active: draft.priceBand === 'expensive' }" @click="choose('priceBand', 'expensive')">高价</button>
+  <section class="filter-panel filter-panel-horizontal" aria-label="站点筛选">
+    <div class="filter-rows">
+      <div v-for="row in rows" :key="row.key" class="facet-row" :data-filter="row.key">
+        <h2 :id="`filter-${row.key}-label`">{{ row.label }}</h2>
+        <div class="facet-options" role="group" :aria-labelledby="`filter-${row.key}-label`">
+          <button type="button" class="facet-chip" :class="{ active: draft[row.key] === '' }" :aria-pressed="draft[row.key] === ''" @click="choose(row.key, '')">全部</button>
+          <button
+            v-for="option in row.options" :key="option.value" type="button" class="facet-chip"
+            :class="{ active: draft[row.key] === option.value }" :aria-pressed="draft[row.key] === option.value"
+            :title="option.label" @click="choose(row.key, option.value)"
+          >{{ option.label }} <span>({{ countLabel(option.count) }})</span></button>
+          <template v-if="row.placeholderCount">
+            <span v-for="index in row.placeholderCount" :key="`placeholder-${index}`" class="facet-skeleton" aria-hidden="true"></span>
+            <span class="sr-only" role="status">正在加载{{ row.label }}选项</span>
+          </template>
+          <span v-if="row.emptyMessage" class="facet-empty" role="status">{{ row.emptyMessage }}</span>
+          <button v-if="row.optionCount > rowLimit" type="button" class="facet-expand" :aria-expanded="!!expanded[row.key]" @click="expanded[row.key] = !expanded[row.key]">
+            {{ expanded[row.key] ? '收起' : `展开全部 ${row.optionCount} 项` }}<ChevronUp v-if="expanded[row.key]" :size="12" /><ChevronDown v-else :size="12" />
+          </button>
+        </div>
       </div>
     </div>
-
-    <div class="filter-group">
-      <span>分时费率</span>
-      <div class="segmented vertical">
-        <button :class="{ active: draft.tou === '' }" @click="choose('tou', '')">全部站点</button>
-        <button :class="{ active: draft.tou === 'has' }" @click="choose('tou', 'has')">有多时段</button>
-        <button :class="{ active: draft.tou === 'flat' }" @click="choose('tou', 'flat')">全天统一价</button>
-        <button :class="{ active: draft.tou === 'none' }" @click="choose('tou', 'none')">无分时数据</button>
-      </div>
+    <div class="filter-bottom">
+      <label class="search-field">
+        <Search :size="14" />
+        <input v-model="draft.keyword" placeholder="搜索站点、POI 或城市" aria-label="搜索站点、POI 或城市"
+          @input="scheduleSearch" @compositionstart="beginSearchComposition" @compositionend="endSearchComposition" @keyup.enter="searchOnEnter" />
+      </label>
+      <label class="filter-sort">排序
+        <select v-model="draft.sort" aria-label="站点排序" @change="apply">
+          <option value="idleDesc">空闲率从高到低</option><option value="idleAsc">空闲率从低到高</option>
+          <option value="priceAsc">电价从低到高</option><option value="priceDesc">电价从高到低</option>
+        </select>
+      </label>
+      <button type="button" class="filter-reset" title="重置筛选" @click="reset"><RotateCcw :size="12" />重置筛选</button>
+      <span class="filter-count-note">括号为保留其他条件时的站点数 · 筛选后自动更新</span>
+      <button type="button" class="filter-refresh" :title="refreshTitle" :disabled="loading" @click="emit('refresh')"><RefreshCw :size="13" />刷新数据</button>
+      <span class="filter-result" role="status">{{ loading ? '正在筛选…' : `共 ${total.toLocaleString()} 个站点` }}</span>
     </div>
-
-    <div class="filter-group">
-      <span>电桩明细</span>
-      <div class="segmented">
-        <button :class="{ active: draft.piles === '' }" @click="choose('piles', '')">全部</button>
-        <button :class="{ active: draft.piles === 'with' }" @click="choose('piles', 'with')">有</button>
-        <button :class="{ active: draft.piles === 'without' }" @click="choose('piles', 'without')">无</button>
-      </div>
-    </div>
-
-    <label>
-      <span>排序</span>
-      <select v-model="draft.sort" @change="apply">
-        <option value="idleDesc">空闲率从高到低</option>
-        <option value="updated">最近采集</option>
-        <option value="priceAsc">电价从低到高</option>
-        <option value="priceDesc">电价从高到低</option>
-        <option value="periods">分时段数最多</option>
-        <option value="name">站点名称</option>
-      </select>
-    </label>
-
-    <button
-      v-if="filters.availability"
-      class="active-availability-filter"
-      title="清除站点状态筛选"
-      @click="choose('availability', '')"
-    >
-      站点状态：{{ availabilityLabels[filters.availability] }} <span aria-hidden="true">×</span>
-    </button>
-    <div class="filter-foot"><span class="filter-auto-hint">筛选后自动更新</span>{{ total }} 条匹配结果</div>
-  </aside>
+  </section>
 </template>
