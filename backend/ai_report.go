@@ -236,11 +236,16 @@ func (a *API) runDailyAIReport(ctx context.Context, date string, force bool) (Da
 
 	metrics, err := a.collectDailyReportMetrics(ctx, date)
 	if err != nil {
-		return DailyAIReport{}, a.markDailyAIReport(ctx, date, "FAILED", "", metrics, err)
+		// Record the failure for /api/ai-report/daily, but return the original error:
+		// markDailyAIReport returns nil on success, so returning its value would
+		// turn the HTTP response into "200 + empty report" and swallow the reason.
+		_ = a.markDailyAIReport(ctx, date, "FAILED", "", metrics, err)
+		return DailyAIReport{}, err
 	}
 	content, err := callAIReportModel(a.cfg.AIReport, metrics)
 	if err != nil {
-		return DailyAIReport{}, a.markDailyAIReport(ctx, date, "FAILED", "", metrics, err)
+		_ = a.markDailyAIReport(ctx, date, "FAILED", "", metrics, err)
+		return DailyAIReport{}, err
 	}
 	if err := a.markDailyAIReport(ctx, date, "COMPLETED", content, metrics, nil); err != nil {
 		return DailyAIReport{}, err
@@ -343,6 +348,7 @@ func (a *API) collectDailyReportMetrics(ctx context.Context, date string) (map[s
 	rows, err := a.store.db.QueryContext(ctx, `
 		WITH latest AS (
 			SELECT h.source_key, h.availability_json, h.price_json, h.pile_idle, h.pile_busy,
+			       h.captured_at, h.id,
 			       r.city, r.district, r.matched_station_name, r.current_price
 			  FROM site_exploration_charging_station_dynamic_history h
 			  LEFT JOIN site_exploration_charging_station_result r ON r.source_key=h.source_key
@@ -444,7 +450,9 @@ func StartAIReportScheduler(db *sql.DB,cfg AIReportConfig) {
 	if !cfg.enabled() { return }
 	location, err := time.LoadLocation(cfg.Timezone)
 	if err != nil { location = time.FixedZone("CST",8*60*60) }
-	api := &API{store:&Store{db:db}}
+	// cfg must be carried over: runDailyAIReport reads a.cfg.AIReport, so a bare
+	// &API{store:...} would report "AI report is disabled" even when it is enabled.
+	api := &API{store: &Store{db: db}, cfg: Config{AIReport: cfg}}
 	go func() {
 		for {
 			now := time.Now().In(location)
