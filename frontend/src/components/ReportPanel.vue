@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { fetchDailyAIReport } from '../api'
+import { renderMarkdown } from '../markdown'
 import type { DailyAIReport, Overview, StationFilters, StationSummary } from '../types'
 
 const props = defineProps<{
@@ -27,6 +28,8 @@ const lastUpdated = computed(() => props.summary?.asOf || props.overview?.update
 const aiReport = ref<DailyAIReport | null>(null)
 const aiLoading = ref(false)
 const aiError = ref('')
+// 模型返回的是 Markdown，直接插值会把 # / ** / | 原样显示
+const aiHtml = computed(() => renderMarkdown(aiReport.value?.content ?? ''))
 
 async function loadAIReport() {
   aiLoading.value = true
@@ -141,14 +144,14 @@ watch(() => props.summary?.asOf, () => { void loadAIReport() })
         </div>
         <div v-if="aiLoading" class="ai-report-status">AI 报告加载中...</div>
         <div v-else-if="aiError" class="ai-report-status error">{{ aiError }}</div>
-        <div v-else-if="aiReport?.status === 'COMPLETED' && aiReport.content" class="ai-report-content">{{ aiReport.content }}</div>
+        <div v-else-if="aiReport?.status === 'COMPLETED' && aiReport.content" class="ai-report-content" v-html="aiHtml"></div>
         <div v-else class="ai-report-status">
           AI 报告尚未生成或暂不可用。
           <small v-if="aiReport?.status === 'FAILED' && aiReport.error">{{ aiReport.error }}</small>
         </div>
       </section>
 
-      <section class="daily-section">
+      <section class="daily-section daily-collection">
         <h2>一、采集口径</h2>
         <p>
           后台采集终端约一天完成一轮站点循环。每一轮会重新读取站点详情、电价信息和电桩状态，
@@ -160,7 +163,7 @@ watch(() => props.summary?.asOf, () => { void loadAIReport() })
         </p>
       </section>
 
-      <section class="daily-section">
+      <section class="daily-section daily-status">
         <h2>二、空闲状态分布</h2>
         <p>
           空闲率按站点已有电桩明细计算。空闲站点表示仍有较充足的可用充电能力；
@@ -176,7 +179,7 @@ watch(() => props.summary?.asOf, () => { void loadAIReport() })
         </div>
       </section>
 
-      <section class="daily-section">
+      <section class="daily-section daily-operations">
         <h2>三、运营观察</h2>
         <p>
           从总量看，全网空闲率为 {{ fmt(idleRate) }}%，忙碌率为 {{ fmt(busyRate) }}%。
