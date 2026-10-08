@@ -48,15 +48,82 @@ function renderPriceChart() {
   priceChart ??= echarts.init(priceChartRef.value)
   priceChart.resize()
   const theme = readChartTheme()
-  if (!periods.value.length) {
+  const pricePoints = props.history.filter(item => item.currentPrice > 0)
+  if (!pricePoints.length) {
+    // 当前采集模式每轮只在列表页取一个电价点；没有趋势数据时，
+    // 退回展示历史上从详情页采集到的分时价格阶梯。
+    if (periods.value.length) {
+      renderPriceLadder(theme)
+      return
+    }
     priceChart.clear()
-    priceChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无分时价格', left: 'center', top: 'middle', textStyle: { color: theme.muted, fontSize: 12, fontWeight: 400 } } })
+    priceChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无电价数据', left: 'center', top: 'middle', textStyle: { color: theme.muted, fontSize: 12, fontWeight: 400 } } })
     return
   }
+  const windowSize = 24
+  const start = pricePoints.length > windowSize
+    ? Math.max(0, 100 - windowSize * 100 / pricePoints.length)
+    : 0
   priceChart.setOption({
     animationDuration: 400,
-    grid: { left: 44, right: 12, top: 22, bottom: 28 },
+    grid: { left: 48, right: 16, top: 24, bottom: 58 },
+    dataZoom: [
+      {
+        type: 'inside',
+        start,
+        end: 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+      },
+      {
+        type: 'slider',
+        start,
+        end: 100,
+        bottom: 4,
+        height: 16,
+        borderColor: theme.lineStrong,
+        backgroundColor: theme.surface,
+        fillerColor: theme.primarySelection,
+        handleStyle: { color: theme.primary, borderColor: theme.primary },
+        moveHandleStyle: { color: theme.primary },
+        textStyle: { color: theme.muted, fontSize: 9 },
+        dataBackground: { lineStyle: { color: theme.lineStrong }, areaStyle: { color: theme.line } },
+        selectedDataBackground: { lineStyle: { color: theme.primary }, areaStyle: { color: theme.primarySelection } },
+      },
+    ],
     tooltip: { trigger: 'axis', backgroundColor: theme.panel, borderColor: theme.lineStrong, textStyle: { color: theme.text, fontSize: 11 } },
+    xAxis: {
+      type: 'category',
+      data: pricePoints.map(item => new Date(item.capturedAt * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })),
+      axisLabel: { color: theme.muted, fontSize: 9, hideOverlap: true },
+      axisLine: { lineStyle: { color: theme.lineStrong } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: theme.muted, fontSize: 9, formatter: '{value}' },
+      splitLine: { lineStyle: { color: theme.line } },
+    },
+    series: [{
+      name: '电价',
+      type: 'line',
+      smooth: true,
+      symbolSize: 5,
+      data: pricePoints.map(item => item.currentPrice),
+      lineStyle: { color: theme.primary, width: 2 },
+      itemStyle: { color: theme.primary },
+      areaStyle: { color: theme.primaryArea },
+    }],
+  }, true)
+}
+
+function renderPriceLadder(theme: ReturnType<typeof readChartTheme>) {
+  if (!priceChart) return
+  priceChart.setOption({
+    animationDuration: 400,
+    title: { text: '历史分时价格', left: 'center', top: 0, textStyle: { color: theme.muted, fontSize: 11, fontWeight: 400 } },
+    grid: { left: 44, right: 12, top: 30, bottom: 28 },
+    tooltip: { trigger: 'axis', backgroundColor: theme.panel, borderColor: theme.lineStrong, textStyle: { color: theme.text, fontSize: 11 } },
+    dataZoom: [],
     xAxis: {
       type: 'category',
       data: periods.value.map(item => item.time || '当前时段'),
@@ -104,7 +171,7 @@ function renderHistoryChart() {
     : 0
   historyChart.setOption({
     animationDuration: 400,
-    grid: { left: 44, right: 42, top: 20, bottom: 58 },
+    grid: { left: 44, right: 16, top: 20, bottom: 58 },
     dataZoom: [
       {
         type: 'inside',
@@ -136,13 +203,9 @@ function renderHistoryChart() {
       axisLabel: { color: theme.muted, fontSize: 9, hideOverlap: true },
       axisLine: { lineStyle: { color: theme.lineStrong } },
     },
-    yAxis: [
-      { type: 'value', axisLabel: { color: theme.muted, fontSize: 9 }, splitLine: { lineStyle: { color: theme.line } } },
-      { type: 'value', min: 0, max: 100, axisLabel: { color: theme.muted, fontSize: 9, formatter: '{value}%' }, splitLine: { show: false } },
-    ],
+    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { color: theme.muted, fontSize: 9, formatter: '{value}%' }, splitLine: { lineStyle: { color: theme.line } } },
     series: [
-      { name: '电价', type: 'line', smooth: true, data: props.history.map(item => item.currentPrice || null), symbolSize: 5, lineStyle: { color: theme.primary, width: 2 }, itemStyle: { color: theme.primary } },
-      { name: '空闲率', type: 'line', yAxisIndex: 1, smooth: true, data: props.history.map(item => item.pileIdle + item.pileBusy > 0 ? Math.round(item.pileIdle * 100 / (item.pileIdle + item.pileBusy)) : null), symbolSize: 4, lineStyle: { color: theme.green, width: 2 }, itemStyle: { color: theme.green } },
+      { name: '空闲率', type: 'line', smooth: true, data: props.history.map(item => item.pileIdle + item.pileBusy > 0 ? Math.round(item.pileIdle * 100 / (item.pileIdle + item.pileBusy)) : null), symbolSize: 4, lineStyle: { color: theme.green, width: 2 }, itemStyle: { color: theme.green } },
     ],
   }, true)
 }
@@ -199,14 +262,6 @@ function fmtTime(epoch: number) {
   return new Date(epoch * 1000).toLocaleString('zh-CN', { hour12: false })
 }
 
-function statusClass(status: string) {
-  if (!status.trim()) return 'busy'
-  if (status === '空闲') return 'idle'
-  if (['充电中', '使用中', '占用', '已满'].includes(status)) return 'busy'
-  if (['故障', '离线', '维护中', '不可用'].includes(status)) return 'fault'
-  return 'unknown'
-}
-
 function pileGroup(pile: PileDetail) {
   if (pile.chargingType.includes('超')) return '超充'
   if (pile.chargingType.includes('慢')) return '慢充'
@@ -221,13 +276,13 @@ function pileGroup(pile: PileDetail) {
     <div v-if="loading" class="detail-empty" role="status" aria-live="polite">
       <BatteryCharging :size="34" />
       <strong>正在加载站点详情…</strong>
-      <span>正在获取分时电价、电桩状态和历史快照</span>
+      <span>正在获取电价、空闲率和历史快照</span>
     </div>
 
     <div v-else-if="!detail" class="detail-empty">
       <BatteryCharging :size="34" />
       <strong>选择站点查看详情</strong>
-      <span>电价阶梯、逐桩状态和历史快照会显示在这里</span>
+      <span>电价趋势、空闲率趋势和电桩静态信息会显示在这里</span>
     </div>
 
     <template v-else-if="detail">
@@ -242,18 +297,15 @@ function pileGroup(pile: PileDetail) {
           <span>当前电价</span>
           <strong>{{ detail.currentPriceText || '--' }}<em v-if="detail.currentPriceText">元/kWh</em></strong>
         </div>
-        <span class="rate-badge" :class="detail.hasTou ? 'tou' : detail.flatOnly ? 'flat' : 'missing'">
-          {{ detail.hasTou ? `${detail.pricePeriodCount} 个时段` : detail.flatOnly ? '全天统一' : '无分时数据' }}
-        </span>
       </div>
 
       <section class="detail-section">
-        <div class="section-head"><Zap :size="14" /> 分时价格阶梯</div>
+        <div class="section-head"><Zap :size="14" /> 电价变化趋势</div>
         <div ref="priceChartRef" class="chart-box"></div>
       </section>
 
       <section class="detail-section">
-        <div class="section-head"><Activity :size="14" /> 历史快照趋势</div>
+        <div class="section-head"><Activity :size="14" /> 空闲率趋势</div>
         <div ref="historyChartRef" class="chart-box"></div>
         <div class="history-meta"><Clock3 :size="11" /> 最近一次采集 {{ fmtTime(detail.receivedAt) }}</div>
       </section>
@@ -289,7 +341,6 @@ function pileGroup(pile: PileDetail) {
               <strong>{{ pile.deviceId }}</strong>
               <span>{{ pileGroup(pile) }} · {{ pile.ratedPower || '功率未知' }} · {{ pile.ratedCurrent || '电流未知' }}</span>
             </div>
-            <span class="pile-status" :class="statusClass(pile.status)">{{ pile.status || '忙碌' }}</span>
           </div>
         </div>
         <div v-else class="mini-empty">该站点本轮没有逐桩明细</div>
