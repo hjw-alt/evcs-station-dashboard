@@ -30,6 +30,23 @@ const periods = computed<PricePeriod[]>(() => {
   return [...props.detail.fastPrices, ...props.detail.slowPrices]
 })
 
+// 返回某个采集时刻所属的分时时段（例如 00:00-06:00），用于提示与阶梯对齐。
+function ladderWindowFor(epochSeconds: number): string {
+  const items = periods.value
+  if (!items.length) return ''
+  const date = new Date(epochSeconds * 1000)
+  const minutes = date.getHours() * 60 + date.getMinutes()
+  for (const item of items) {
+    const match = /^(\d{1,2}):(\d{2})\s*[-~至]\s*(\d{1,2}):(\d{2})$/.exec((item.time || '').trim())
+    if (!match) continue
+    const start = Number(match[1]) * 60 + Number(match[2])
+    const end = Number(match[3]) * 60 + Number(match[4])
+    const inside = end > start ? (minutes >= start && minutes < end) : (minutes >= start || minutes < end)
+    if (inside) return item.time
+  }
+  return ''
+}
+
 function numeric(value: string) {
   const number = Number.parseFloat(value)
   return Number.isFinite(number) ? number : null
@@ -91,7 +108,21 @@ function renderPriceChart() {
         selectedDataBackground: { lineStyle: { color: theme.primary }, areaStyle: { color: theme.primarySelection } },
       },
     ],
-    tooltip: { trigger: 'axis', backgroundColor: theme.panel, borderColor: theme.lineStrong, textStyle: { color: theme.text, fontSize: 11 } },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: theme.panel,
+      borderColor: theme.lineStrong,
+      textStyle: { color: theme.text, fontSize: 11 },
+      formatter: (params: unknown) => {
+        const list = Array.isArray(params) ? params : [params]
+        const first = (list[0] ?? {}) as { dataIndex?: number; value?: number | string }
+        const index = typeof first.dataIndex === 'number' ? first.dataIndex : -1
+        const point = index >= 0 ? pricePoints[index] : undefined
+        const price = point ? point.currentPrice : first.value
+        const window = point ? ladderWindowFor(point.capturedAt) : ''
+        return `电价 ${price ?? '--'} 元/kWh${window ? `<br/>分时时段 ${window}` : ''}`
+      },
+    },
     xAxis: {
       type: 'category',
       data: pricePoints.map(item => new Date(item.capturedAt * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })),
@@ -106,7 +137,8 @@ function renderPriceChart() {
     series: [{
       name: '电价',
       type: 'line',
-      smooth: true,
+      // 阶梯线：同一分时时段内价格保持水平（一条直线），跨时段时垂直跳变。
+      step: 'end',
       symbolSize: 5,
       data: pricePoints.map(item => item.currentPrice),
       lineStyle: { color: theme.primary, width: 2 },
