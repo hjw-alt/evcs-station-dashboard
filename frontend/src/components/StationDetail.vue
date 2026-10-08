@@ -30,21 +30,53 @@ const periods = computed<PricePeriod[]>(() => {
   return [...props.detail.fastPrices, ...props.detail.slowPrices]
 })
 
-// 返回某个采集时刻所属的分时时段（例如 00:00-06:00），用于提示与阶梯对齐。
-function ladderWindowFor(epochSeconds: number): string {
-  const items = periods.value
-  if (!items.length) return ''
-  const date = new Date(epochSeconds * 1000)
-  const minutes = date.getHours() * 60 + date.getMinutes()
-  for (const item of items) {
-    const match = /^(\d{1,2}):(\d{2})\s*[-~至]\s*(\d{1,2}):(\d{2})$/.exec((item.time || '').trim())
-    if (!match) continue
-    const start = Number(match[1]) * 60 + Number(match[2])
-    const end = Number(match[3]) * 60 + Number(match[4])
-    const inside = end > start ? (minutes >= start && minutes < end) : (minutes >= start || minutes < end)
-    if (inside) return item.time
+// 电价趋势固定为"昨日 + 今日"各 5 个分时时段（与高德详情页一致），
+// 同一时段内多次采集只取第一次的价格（同一时段电价相同）。
+type PriceSlot = {
+  shortLabel: string
+  dayLabel: string
+  windowLabel: string
+  price: number | null
+  capturedAt: number
+}
+
+const PRICE_WINDOWS: { label: string; startMin: number; endMin: number }[] = [
+  { label: '00:00-06:00', startMin: 0, endMin: 360 },
+  { label: '06:00-11:00', startMin: 360, endMin: 660 },
+  { label: '11:00-14:00', startMin: 660, endMin: 840 },
+  { label: '14:00-16:00', startMin: 840, endMin: 960 },
+  { label: '16:00-23:59', startMin: 960, endMin: 1440 },
+]
+
+function buildPriceSlots(points: HistoryPoint[]): PriceSlot[] {
+  const slots: PriceSlot[] = []
+  const now = new Date()
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const days = [
+    { label: '昨日', base: dayStart - 24 * 3600 * 1000 },
+    { label: '今日', base: dayStart },
+  ]
+  for (const day of days) {
+    const dateLabel = new Date(day.base).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+    for (const window of PRICE_WINDOWS) {
+      const start = day.base + window.startMin * 60 * 1000
+      const end = day.base + window.endMin * 60 * 1000
+      const first = points
+        .filter(item => {
+          const ts = item.capturedAt * 1000
+          return ts >= start && ts < end
+        })
+        .sort((a, b) => a.capturedAt - b.capturedAt)[0]
+      slots.push({
+        shortLabel: `${dateLabel} ${window.label.slice(0, 5)}`,
+        dayLabel: `${day.label} ${dateLabel}`,
+        windowLabel: window.label,
+        price: first && first.currentPrice > 0 ? first.currentPrice : null,
+        capturedAt: first ? first.capturedAt : 0,
+      })
+    }
   }
-  return ''
+  return slots
 }
 
 function numeric(value: string) {
@@ -77,37 +109,10 @@ function renderPriceChart() {
     priceChart.setOption({ backgroundColor: 'transparent', title: { text: '暂无电价数据', left: 'center', top: 'middle', textStyle: { color: theme.muted, fontSize: 12, fontWeight: 400 } } })
     return
   }
-  const windowSize = 24
-  const start = pricePoints.length > windowSize
-    ? Math.max(0, 100 - windowSize * 100 / pricePoints.length)
-    : 0
+  const slots = buildPriceSlots(pricePoints)
   priceChart.setOption({
     animationDuration: 400,
-    grid: { left: 48, right: 16, top: 24, bottom: 58 },
-    dataZoom: [
-      {
-        type: 'inside',
-        start,
-        end: 100,
-        zoomOnMouseWheel: true,
-        moveOnMouseMove: true,
-      },
-      {
-        type: 'slider',
-        start,
-        end: 100,
-        bottom: 4,
-        height: 16,
-        borderColor: theme.lineStrong,
-        backgroundColor: theme.surface,
-        fillerColor: theme.primarySelection,
-        handleStyle: { color: theme.primary, borderColor: theme.primary },
-        moveHandleStyle: { color: theme.primary },
-        textStyle: { color: theme.muted, fontSize: 9 },
-        dataBackground: { lineStyle: { color: theme.lineStrong }, areaStyle: { color: theme.line } },
-        selectedDataBackground: { lineStyle: { color: theme.primary }, areaStyle: { color: theme.primarySelection } },
-      },
-    ],
+    grid: { left: 48, right: 16, top: 24, bottom: 36 },
     tooltip: {
       trigger: 'axis',
       backgroundColor: theme.panel,
@@ -115,18 +120,21 @@ function renderPriceChart() {
       textStyle: { color: theme.text, fontSize: 11 },
       formatter: (params: unknown) => {
         const list = Array.isArray(params) ? params : [params]
-        const first = (list[0] ?? {}) as { dataIndex?: number; value?: number | string }
+        const first = (list[0] ?? {}) as { dataIndex?: number }
         const index = typeof first.dataIndex === 'number' ? first.dataIndex : -1
-        const point = index >= 0 ? pricePoints[index] : undefined
-        const price = point ? point.currentPrice : first.value
-        const window = point ? ladderWindowFor(point.capturedAt) : ''
-        return `电价 ${price ?? '--'} 元/kWh${window ? `<br/>分时时段 ${window}` : ''}`
+        const slot = index >= 0 ? slots[index] : undefined
+        if (!slot) return ''
+        if (slot.price == null) return `${slot.dayLabel} ${slot.windowLabel}<br/>未采集`
+        const time = slot.capturedAt
+          ? new Date(slot.capturedAt * 1000).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : ''
+        return `${slot.dayLabel} ${slot.windowLabel}<br/>电价 ${slot.price} 元/kWh${time ? `<br/>采集于 ${time}` : ''}`
       },
     },
     xAxis: {
       type: 'category',
-      data: pricePoints.map(item => new Date(item.capturedAt * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })),
-      axisLabel: { color: theme.muted, fontSize: 9, hideOverlap: true },
+      data: slots.map(item => item.shortLabel),
+      axisLabel: { color: theme.muted, fontSize: 9, interval: 0, rotate: 22 },
       axisLine: { lineStyle: { color: theme.lineStrong } },
     },
     yAxis: {
@@ -137,10 +145,9 @@ function renderPriceChart() {
     series: [{
       name: '电价',
       type: 'line',
-      // 阶梯线：同一分时时段内价格保持水平（一条直线），跨时段时垂直跳变。
-      step: 'end',
-      symbolSize: 5,
-      data: pricePoints.map(item => item.currentPrice),
+      connectNulls: false,
+      symbolSize: 6,
+      data: slots.map(item => item.price),
       lineStyle: { color: theme.primary, width: 2 },
       itemStyle: { color: theme.primary },
       areaStyle: { color: theme.primaryArea },
