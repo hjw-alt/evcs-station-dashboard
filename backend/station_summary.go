@@ -39,7 +39,8 @@ func validAvailability(value string) string {
 
 // Keep the thresholds identical to the card colors, including no-detail sites.
 func stationAvailability(station Station) string {
-	if !station.HasPileDetails || station.PileTotal <= 0 {
+	// 列表快照轮次只有汇总空闲/总数（没有逐桩明细），同样可以算出空闲率。
+	if station.PileTotal <= 0 || station.PileIdle+station.PileBusy <= 0 {
 		return "unknown"
 	}
 	if station.IdleRate >= 50 {
@@ -83,7 +84,7 @@ func summarizeStations(items []Station, now int64) StationSummary {
 		if stationAvailability(station) == "unknown" {
 			summary.Freshness.MissingPiles++
 		}
-		if station.CurrentPrice > 0 && station.HasPileDetails && station.PileTotal > 0 && station.PileIdle > 0 {
+		if station.CurrentPrice > 0 && station.PileTotal > 0 && station.PileIdle > 0 {
 			eligible = append(eligible, station)
 		}
 	}

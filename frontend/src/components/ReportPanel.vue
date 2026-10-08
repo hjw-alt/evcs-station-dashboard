@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { fetchDailyAIReport } from '../api'
+import { fetchAIReportDates, fetchDailyAIReport } from '../api'
 import { renderMarkdown } from '../markdown'
 import type { DailyAIReport, Overview, StationFilters, StationSummary } from '../types'
 
@@ -28,14 +28,31 @@ const lastUpdated = computed(() => props.summary?.asOf || props.overview?.update
 const aiReport = ref<DailyAIReport | null>(null)
 const aiLoading = ref(false)
 const aiError = ref('')
+const reportDates = ref<{ date: string; status: string }[]>([])
+const selectedDate = ref('')
 // 模型返回的是 Markdown，直接插值会把 # / ** / | 原样显示
 const aiHtml = computed(() => renderMarkdown(aiReport.value?.content ?? ''))
 
-async function loadAIReport() {
+async function loadReportDates() {
+  try {
+    const response = await fetchAIReportDates()
+    reportDates.value = response.items || []
+    if (!selectedDate.value && reportDates.value.length > 0) {
+      selectedDate.value = reportDates.value[0].date
+    }
+  } catch {
+    reportDates.value = []
+  }
+}
+
+async function loadAIReport(date = selectedDate.value) {
   aiLoading.value = true
   aiError.value = ''
   try {
-    aiReport.value = await fetchDailyAIReport()
+    aiReport.value = await fetchDailyAIReport(date || undefined)
+    if (!selectedDate.value && aiReport.value?.reportDate) {
+      selectedDate.value = aiReport.value.reportDate
+    }
   } catch (error) {
     aiError.value = error instanceof Error ? error.message : String(error)
   } finally {
@@ -94,8 +111,13 @@ function reportTime(epoch: number) {
   return new Date(epoch * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-onMounted(() => { void loadAIReport() })
-watch(() => props.summary?.asOf, () => { void loadAIReport() })
+onMounted(async () => {
+  await loadReportDates()
+  await loadAIReport(selectedDate.value)
+})
+watch(selectedDate, (value) => {
+  if (value && value !== aiReport.value?.reportDate) void loadAIReport(value)
+})
 </script>
 
 <template>
@@ -140,6 +162,12 @@ watch(() => props.summary?.asOf, () => { void loadAIReport() })
       <section class="daily-section daily-ai-section">
         <div class="section-head">
           <h2>AI 每日运行分析</h2>
+          <label class="ai-report-date-select">
+            <span>报告日期</span>
+            <select v-model="selectedDate" :disabled="aiLoading || reportDates.length === 0">
+              <option v-for="item in reportDates" :key="item.date" :value="item.date">{{ item.date }}</option>
+            </select>
+          </label>
           <span class="report-section-note">每天自动生成</span>
         </div>
         <div v-if="aiLoading" class="ai-report-status">AI 报告加载中...</div>

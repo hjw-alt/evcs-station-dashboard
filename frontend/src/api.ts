@@ -1,4 +1,5 @@
 import type {
+  AIReportDatesResponse,
   DailyAIReport,
   HistoryPoint,
   MapStationResponse,
@@ -30,8 +31,13 @@ export function fetchStations(filters: StationFilters) {
   return request<StationResponse>(`/api/stations?${params.toString()}`)
 }
 
-export function fetchDailyAIReport() {
-  return request<DailyAIReport>('/api/ai-report/daily')
+export function fetchDailyAIReport(date?: string) {
+  const suffix = date ? `?date=${encodeURIComponent(date)}` : ''
+  return request<DailyAIReport>(`/api/ai-report/daily${suffix}`)
+}
+
+export function fetchAIReportDates() {
+  return request<AIReportDatesResponse>('/api/ai-report/dates')
 }
 
 export function fetchMeta() {

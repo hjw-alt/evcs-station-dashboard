@@ -30,6 +30,7 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("/api/station/history", a.stationHistory)
 	mux.HandleFunc("/api/meta", a.meta)
 	mux.HandleFunc("/api/ai-report/daily", a.dailyAIReport)
+	mux.HandleFunc("/api/ai-report/dates", a.aiReportDates)
 	mux.HandleFunc("/api/ai-report/generate", a.generateDailyAIReport)
 	return mux
 }
@@ -91,6 +92,31 @@ func (a *API) overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// 列表快照轮次没有逐桩明细，但会更新顶部汇总（空闲/总数）。
+	// 给"没有 chargingPiles 的站点"补上汇总口径，让 KPI 跟着每轮刷新。
+	var aggregateIdle, aggregateTotal int64
+	err = a.store.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(
+		           GREATEST(CAST(COALESCE(NULLIF(r.fast_available,''),'0') AS SIGNED),0)
+		         + GREATEST(CAST(COALESCE(NULLIF(r.super_available,''),'0') AS SIGNED),0)
+		         + GREATEST(CAST(COALESCE(NULLIF(r.slow_available,''),'0') AS SIGNED),0)), 0),
+		       COALESCE(SUM(
+		           GREATEST(CAST(COALESCE(NULLIF(r.fast_total,''),'0') AS SIGNED),0)
+		         + GREATEST(CAST(COALESCE(NULLIF(r.super_total,''),'0') AS SIGNED),0)
+		         + GREATEST(CAST(COALESCE(NULLIF(r.slow_total,''),'0') AS SIGNED),0)), 0)
+		  FROM site_exploration_charging_station_result r
+		 WHERE COALESCE(JSON_LENGTH(JSON_EXTRACT(r.result_payload,'$.chargingPiles')),0) = 0`,
+	).Scan(&aggregateIdle, &aggregateTotal)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if aggregateIdle > aggregateTotal {
+		aggregateIdle = aggregateTotal
+	}
+	overview.PileIdle += int(aggregateIdle)
+	overview.PileBusy += int(aggregateTotal - aggregateIdle)
+	overview.PileTotal += int(aggregateTotal)
 	err = a.store.db.QueryRowContext(ctx, `
 		WITH priced AS (
 			SELECT source_key,

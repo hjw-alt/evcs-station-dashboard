@@ -137,6 +137,15 @@ export interface Meta {
 }
 
 export type Availability = 'idle' | 'moderate' | 'full' | 'unknown'
+export interface AIReportDateItem {
+  date: string
+  status: string
+}
+
+export interface AIReportDatesResponse {
+  items: AIReportDateItem[]
+}
+
 export interface DailyAIReport {
   enabled?: boolean
   reportDate: string

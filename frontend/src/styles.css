@@ -301,7 +301,9 @@ input::placeholder { color: var(--faint); }
 .report-section-kicker { display: block; color: var(--primary); font-size: 9px; font-weight: 700; letter-spacing: .07em; }
 .report-section-heading h3 { margin: 3px 0 0; color: var(--text); font-size: 13px; letter-spacing: .01em; }
 .report-section-note { color: var(--faint); font-size: 8.5px; white-space: nowrap; }
-.report-paragraph { margin: 0 0 7px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+
+.ai-report-date-select { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; margin-right: 10px; font-size: 11px; color: var(--muted); }
+.ai-report-date-select select { padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--text); font-size: 11px; }.report-paragraph { margin: 0 0 7px; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .report-paragraph strong { color: var(--text); font-weight: 700; }
 .report-paragraph-last { margin-bottom: 8px; }
 .report-fact-line { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }

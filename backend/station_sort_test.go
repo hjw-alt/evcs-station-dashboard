@@ -17,8 +17,8 @@ func stationKeys(items []Station) []string {
 
 func TestIdleOrderRateThenIdleCountAndUnknownLast(t *testing.T) {
 	items := []Station{
-		{SourceKey: "unknown", MatchedName: "A", PileTotal: 50, PileIdle: 50, IdleRate: 100},
-		{SourceKey: "busy", HasPileDetails: true, PileTotal: 20},
+		{SourceKey: "unknown", MatchedName: "A", IdleRate: 100},
+		{SourceKey: "busy", PileTotal: 20, PileBusy: 20, IdleRate: 0},
 		{SourceKey: "moderate", HasPileDetails: true, PileTotal: 100, PileIdle: 40, IdleRate: 40},
 		{SourceKey: "idle-small", HasPileDetails: true, PileTotal: 10, PileIdle: 8, IdleRate: 80},
 		{SourceKey: "full-idle", HasPileDetails: true, PileTotal: 2, PileIdle: 2, IdleRate: 100},

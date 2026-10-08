@@ -98,7 +98,8 @@ function fmtTime(epoch: number) {
 }
 
 function loadClass(station: Station) {
-  if (!station.hasPileDetails || station.pileTotal <= 0) return 'unknown'
+  // 列表快照轮次只有汇总空闲/总数（没有逐桩明细），同样可以用来算空闲率。
+  if (station.pileTotal <= 0 || station.pileIdle + station.pileBusy <= 0) return 'unknown'
   if (station.idleRate >= 50) return 'idle'
   if (station.idleRate >= 20) return 'moderate'
   return 'full'
@@ -199,7 +200,6 @@ const groupedCards = computed(() => {
             <th>站点</th>
             <th>城市 / 运营商</th>
             <th>当前电价</th>
-            <th>分时费率</th>
             <th>快 / 超 / 慢</th>
             <th>空闲</th>
             <th>采集时间</th>
@@ -208,9 +208,9 @@ const groupedCards = computed(() => {
         <tbody>
           <template v-if="loading">
             <tr v-for="index in listSkeletonCount" :key="index" class="skeleton-row" aria-hidden="true">
-              <td v-for="column in 7" :key="column">
+              <td v-for="column in 6" :key="column">
                 <span class="list-skeleton-line"></span>
-                <span v-if="[1, 2, 3, 6].includes(column)" class="list-skeleton-line short"></span>
+                <span v-if="[1, 2, 3, 5].includes(column)" class="list-skeleton-line short"></span>
               </td>
             </tr>
           </template>
@@ -236,11 +236,6 @@ const groupedCards = computed(() => {
               </div>
             </td>
             <td>
-              <span v-if="station.hasTou" class="rate-badge tou">多时段 {{ station.pricePeriodCount }}</span>
-              <span v-else-if="station.flatOnly" class="rate-badge flat">全天统一</span>
-              <span v-else class="rate-badge missing">无数据</span>
-            </td>
-            <td>
               <div class="pile-triplet">
                 <span><Zap :size="11" />快 {{ station.fastTotal }}</span>
                 <span class="super">超 {{ station.superTotal }}</span>
@@ -248,7 +243,7 @@ const groupedCards = computed(() => {
               </div>
             </td>
             <td>
-              <template v-if="station.hasPileDetails && station.pileTotal > 0">
+              <template v-if="station.pileTotal > 0 && station.pileIdle + station.pileBusy > 0">
                 <div class="idle-cell">
                   <div class="idle-track"><i :style="{ width: `${Math.min(100, station.idleRate)}%` }"></i></div>
                   <span>{{ station.idleRate.toFixed(0) }}%</span>
@@ -257,13 +252,13 @@ const groupedCards = computed(() => {
               </template>
               <template v-else>
                 <div class="idle-missing">暂无数据</div>
-                <div class="station-sub">未采集到桩详情</div>
+                <div class="station-sub">未采集到空闲数据</div>
               </template>
             </td>
             <td class="time-cell">{{ fmtTime(station.receivedAt) }}</td>
           </tr>
           <tr v-if="!loading && !items.length">
-            <td colspan="7" class="empty-state">没有符合当前条件的站点</td>
+            <td colspan="6" class="empty-state">没有符合当前条件的站点</td>
           </tr>
         </tbody>
       </table>
@@ -317,12 +312,6 @@ const groupedCards = computed(() => {
                   <small>{{ station.currentPriceText ? '元/kWh' : '暂无电价' }}</small>
                 </span>
 
-                <span class="card-rate">
-                  <span v-if="station.hasTou">分时 {{ station.pricePeriodCount }}</span>
-                  <span v-else-if="station.flatOnly">全天统一</span>
-                  <span v-else>无分时</span>
-                </span>
-
                 <span class="card-pile-type">
                   <span><Zap :size="10" />快 {{ station.fastTotal }}</span>
                   <span class="super">超 {{ station.superTotal }}</span>
@@ -330,7 +319,7 @@ const groupedCards = computed(() => {
                 </span>
 
                 <span class="card-load">
-                  <template v-if="station.hasPileDetails && station.pileTotal > 0">
+                  <template v-if="station.pileTotal > 0 && station.pileIdle + station.pileBusy > 0">
                     <span class="card-load-meta">
                       <small>空闲率 {{ station.idleRate.toFixed(0) }}%</small>
                       <small>{{ station.pileIdle }}/{{ station.pileTotal }} 根</small>

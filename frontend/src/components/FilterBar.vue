@@ -32,11 +32,10 @@ const rowLimit = 8
 const fixedOptions: Partial<Record<StationFacetKey, [string, string][]>> = {
   availability: [['idle', '空闲'], ['moderate', '适中'], ['full', '满载'], ['unknown', '无数据']],
   priceBand: [['cheap', '低价'], ['mid', '中位价'], ['expensive', '高价'], ['missing', '无电价']],
-  tou: [['has', '多时段电价'], ['flat', '全天统一价'], ['none', '无分时数据']],
 }
 const rowLabels: [StationFacetKey, string][] = [
   ['city', '所在城市'], ['operator', '运营商'], ['availability', '空闲状态'],
-  ['priceBand', '电价水平'], ['tou', '分时费率'],
+  ['priceBand', '电价水平'],
 ]
 const rows = computed(() => rowLabels.map(([key, label]) => {
   const counts = props.facets?.[key]?.counts

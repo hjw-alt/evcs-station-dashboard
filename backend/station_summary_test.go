@@ -12,22 +12,25 @@ import (
 
 func TestStationAvailabilityThresholds(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		details bool
-		total   int
-		rate    float64
-		want    string
+		name  string
+		total int
+		idle  int
+		busy  int
+		rate  float64
+		want  string
 	}{
-		{"no-details", false, 10, 100, "unknown"},
-		{"zero-total", true, 0, 100, "unknown"},
-		{"idle-boundary", true, 10, 50, "idle"},
-		{"below-idle", true, 10, 49.9, "moderate"},
-		{"moderate-boundary", true, 10, 20, "moderate"},
-		{"below-moderate", true, 10, 19.9, "full"},
-		{"busy", true, 10, 0, "full"},
+		{"no-pile-data", 0, 0, 0, 100, "unknown"},
+		{"all-unknown-status", 10, 0, 0, 100, "unknown"},
+		{"aggregate-only", 10, 10, 0, 100, "idle"},
+		{"zero-total", 0, 10, 0, 100, "unknown"},
+		{"idle-boundary", 10, 5, 5, 50, "idle"},
+		{"below-idle", 10, 4, 6, 49.9, "moderate"},
+		{"moderate-boundary", 10, 2, 8, 20, "moderate"},
+		{"below-moderate", 10, 1, 9, 19.9, "full"},
+		{"busy", 10, 0, 10, 0, "full"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := stationAvailability(Station{HasPileDetails: tc.details, PileTotal: tc.total, IdleRate: tc.rate})
+			got := stationAvailability(Station{PileTotal: tc.total, PileIdle: tc.idle, PileBusy: tc.busy, IdleRate: tc.rate})
 			if got != tc.want {
 				t.Fatalf("availability = %s, want %s", got, tc.want)
 			}
@@ -72,12 +75,13 @@ func TestSummaryTopFiveEligibilityAndStablePriceOrder(t *testing.T) {
 		makeStation("no-price", 0, 8, 80),
 		makeStation("negative-price", -1, 8, 80),
 		makeStation("no-idle", 0.1, 0, 0),
-		{SourceKey: "no-details", CurrentPrice: 0.1, PileTotal: 10, PileIdle: 10},
+		{SourceKey: "aggregate-only", CurrentPrice: 0.1, PileTotal: 10, PileIdle: 10},
 		{SourceKey: "zero-total", CurrentPrice: 0.1, HasPileDetails: true, PileIdle: 10},
 	}
 	original := slices.Clone(items)
 	summary := summarizeStations(items, 2_000_000)
-	want := []string{"cheap", "a-tie", "b-tie", "same-piles-lower-rate", "same-price-fewer-piles"}
+	// 只有汇总空闲/总数的站点（列表快照轮次）现在也有资格进入推荐。
+	want := []string{"aggregate-only", "cheap", "a-tie", "b-tie", "same-piles-lower-rate"}
 	if got := stationKeys(summary.TopAvailable); !reflect.DeepEqual(got, want) {
 		t.Fatalf("top five = %v, want %v", got, want)
 	}
@@ -123,7 +127,7 @@ func TestAvailabilityFilterBeforeSummaryAndPagination(t *testing.T) {
 		{SourceKey: "idle-a", HasPileDetails: true, PileTotal: 10, PileIdle: 10, IdleRate: 100, CurrentPrice: 1},
 		{SourceKey: "moderate", HasPileDetails: true, PileTotal: 10, PileIdle: 3, IdleRate: 30, CurrentPrice: .1},
 		{SourceKey: "idle-b", HasPileDetails: true, PileTotal: 10, PileIdle: 5, IdleRate: 50, CurrentPrice: .5},
-		{SourceKey: "full", HasPileDetails: true, PileTotal: 10},
+		{SourceKey: "full", PileTotal: 10, PileBusy: 10},
 		{SourceKey: "unknown"},
 	}
 	for _, category := range []string{"idle", "moderate", "full", "unknown"} {

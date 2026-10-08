@@ -151,6 +151,38 @@ type generateAIReportRequest struct {
 	Force bool   `json:"force"`
 }
 
+// aiReportDates 列出已保存的每日报告日期（倒序），供前端按日期查看历史报告。
+func (a *API) aiReportDates(w http.ResponseWriter, r *http.Request) {
+	if err := ensureAIReportTable(r.Context(), a.store.db); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	rows, err := a.store.db.QueryContext(r.Context(), `
+		SELECT DATE_FORMAT(report_date,'%Y-%m-%d'), status
+		  FROM station_daily_ai_report
+		 ORDER BY report_date DESC
+		 LIMIT 400`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer rows.Close()
+	type dateItem struct {
+		Date   string `json:"date"`
+		Status string `json:"status"`
+	}
+	items := []dateItem{}
+	for rows.Next() {
+		var item dateItem
+		if err := rows.Scan(&item.Date, &item.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"items": items})
+}
+
 func (a *API) generateDailyAIReport(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Admin-Key") != a.cfg.AdminKey {
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("invalid admin key"))

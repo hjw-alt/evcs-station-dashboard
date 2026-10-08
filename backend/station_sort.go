@@ -8,8 +8,8 @@ func idleOrderedPage(items []Station, page, pageSize int) []Station {
 	sort.Slice(items, func(i, j int) bool {
 		left, right := items[i], items[j]
 		// Match the cards' no-data state and keep it behind even fully busy sites.
-		leftKnown := left.HasPileDetails && left.PileTotal > 0
-		rightKnown := right.HasPileDetails && right.PileTotal > 0
+		leftKnown := left.PileTotal > 0 && left.PileIdle+left.PileBusy > 0
+		rightKnown := right.PileTotal > 0 && right.PileIdle+right.PileBusy > 0
 		if leftKnown != rightKnown {
 			return leftKnown
 		}
@@ -41,8 +41,8 @@ func idleOrderedPage(items []Station, page, pageSize int) []Station {
 func idleAscendingPage(items []Station, page, pageSize int) []Station {
 	sort.Slice(items, func(i, j int) bool {
 		left, right := items[i], items[j]
-		leftKnown := left.HasPileDetails && left.PileTotal > 0
-		rightKnown := right.HasPileDetails && right.PileTotal > 0
+		leftKnown := left.PileTotal > 0 && left.PileIdle+left.PileBusy > 0
+		rightKnown := right.PileTotal > 0 && right.PileIdle+right.PileBusy > 0
 		if leftKnown != rightKnown {
 			return rightKnown
 		}

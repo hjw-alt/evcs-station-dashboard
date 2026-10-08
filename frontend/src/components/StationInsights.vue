@@ -25,7 +25,6 @@ const scope = computed(() => [
   props.filters.city || '全部城市', props.filters.operator,
   props.filters.keyword && `搜索“${props.filters.keyword}”`,
   ({ cheap: '低价', mid: '中位价', expensive: '高价' } as Record<string, string>)[props.filters.priceBand],
-  ({ has: '有多时段', flat: '全天统一价', none: '无分时数据' } as Record<string, string>)[props.filters.tou],
   ({ with: '有电桩明细', without: '无电桩明细' } as Record<string, string>)[props.filters.piles],
 ].filter(Boolean).join(' · '))
 const freshnessHours = computed(() => Math.round((props.summary?.freshnessWindowSeconds ?? 86400) / 3600))
